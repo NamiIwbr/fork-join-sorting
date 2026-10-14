@@ -5,6 +5,7 @@ import javafx.animation.KeyFrame;
 import javafx.animation.ScaleTransition;
 import javafx.animation.Timeline;
 import javafx.animation.TranslateTransition;
+import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Group;
@@ -13,6 +14,7 @@ import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.Slider;
 import javafx.scene.control.Tooltip;
+import javafx.scene.layout.FlowPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Pane;
 import javafx.scene.layout.Priority;
@@ -30,11 +32,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Draws the recursion tree (binary-tree style) and replays a SortTrace:
- * numbers physically slide between slots while the tree is sorted.
- * Controls: play / pause, step forward / back, restart, speed, scrubber.
- */
 public class TreeCanvas extends VBox {
 
     private static final double CELL_W = 42;
@@ -42,27 +39,24 @@ public class TreeCanvas extends VBox {
     private static final double PAD = 10;
     private static final double HEADER_H = 44;
     private static final double BOX_H = HEADER_H + CELL_H + PAD;
+    private static final double MIN_BOX_W = 110;
     private static final double GAP_X = 20;
     private static final double GAP_Y = 52;
     private static final double MARGIN = 24;
 
     private static final String BOX_IDLE =
-            "-fx-background-color: white; -fx-border-color: #e3d6f5;"
-            + "-fx-border-width: 1.5; -fx-border-radius: 14;"
-            + "-fx-background-radius: 14;"
-            + "-fx-effect: dropshadow(gaussian, rgba(120,90,60,0.12), 8, 0.1, 0, 2);";
+            "-fx-background-color: white; -fx-border-color: #c9ccd2;"
+            + "-fx-border-width: 1; -fx-border-radius: 8;"
+            + "-fx-background-radius: 8;";
     private static final String BOX_ACTIVE =
-            "-fx-background-color: #f1f9ff; -fx-border-color: #7cc4f5;"
-            + "-fx-border-width: 2; -fx-border-radius: 14;"
-            + "-fx-background-radius: 14;"
-            + "-fx-effect: dropshadow(gaussian, rgba(124,196,245,0.6), 14, 0.3, 0, 0);";
+            "-fx-background-color: #eef4ff; -fx-border-color: #3b6fd4;"
+            + "-fx-border-width: 2; -fx-border-radius: 8;"
+            + "-fx-background-radius: 8;";
     private static final String BOX_DONE =
-            "-fx-background-color: #f2fcf6; -fx-border-color: #6cd09e;"
-            + "-fx-border-width: 2; -fx-border-radius: 14;"
-            + "-fx-background-radius: 14;"
-            + "-fx-effect: dropshadow(gaussian, rgba(108,208,158,0.35), 10, 0.2, 0, 0);";
+            "-fx-background-color: #f1f8f2; -fx-border-color: #7fbf8a;"
+            + "-fx-border-width: 1.5; -fx-border-radius: 8;"
+            + "-fx-background-radius: 8;";
 
-    /** Visual state of one tree node. */
     private static class View {
         final SortTrace.TNode node;
         final List<View> kids = new ArrayList<>();
@@ -94,6 +88,7 @@ public class TreeCanvas extends VBox {
 
     private SortTrace trace;
     private View rootView;
+    private View current;     
     private final Map<SortTrace.TNode, View> views = new HashMap<>();
     private final List<TranslateTransition> anims = new ArrayList<>();
     private final List<ScaleTransition> pulses = new ArrayList<>();
@@ -104,21 +99,27 @@ public class TreeCanvas extends VBox {
     private double delayMs = 800;
     private Timeline timeline;
 
-    private final Button restartBtn = new Button("⏮");
-    private final Button backBtn = new Button("◀ Step");
-    private final Button playBtn = new Button("▶ Play");
-    private final Button fwdBtn = new Button("Step ▶");
+    private final Button restartBtn = new Button("Эхнээс");
+    private final Button backBtn = new Button("Өмнөх");
+    private final Button playBtn = new Button("Тоглуулах");
+    private final Button fwdBtn = new Button("Дараах");
     private final Slider speedSlider = new Slider(1, 10, 3);
     private final Slider scrubber = new Slider(0, 1, 0);
     private final Label stepLabel = new Label("Алхам 0 / 0");
     private final Label logLabel = new Label("");
 
+    private final Label sideRange = new Label("—");
+    private final Label sideStatus = new Label("");
+    private final FlowPane sideCells = new FlowPane(6, 6);
+
     private final Pane pane = new Pane();
     private final Group lines = new Group();
     private final Group boxes = new Group();
+    private final ScrollPane scroll;
+    private final VBox side;
 
     public TreeCanvas() {
-        super(12);
+        super(10);
         getStyleClass().add("card");
         setAlignment(Pos.TOP_CENTER);
 
@@ -127,9 +128,9 @@ public class TreeCanvas extends VBox {
         fwdBtn.getStyleClass().add("btn-ctrl");
         playBtn.getStyleClass().add("btn-play");
         playBtn.setMinWidth(100);
-        restartBtn.setTooltip(new Tooltip("Эхнээс нь эхлүүлэх"));
-        backBtn.setTooltip(new Tooltip("Нэг алхам ухраах"));
-        fwdBtn.setTooltip(new Tooltip("Нэг алхам урагшлуулах"));
+        restartBtn.setTooltip(new Tooltip("Эхнээс нь эхлүүлнэ"));
+        backBtn.setTooltip(new Tooltip("Нэг алхам хойш"));
+        fwdBtn.setTooltip(new Tooltip("Нэг алхам урагш"));
 
         speedSlider.setPrefWidth(130);
         Label speedLabel = new Label("Хурд");
@@ -154,33 +155,46 @@ public class TreeCanvas extends VBox {
         scrubber.setSnapToTicks(true);
         scrubber.setMaxWidth(Double.MAX_VALUE);
 
+        Label sideTitle = new Label("Одоо эрэмбэлж байгаа хэсэг");
+        sideTitle.getStyleClass().add("hint");
+        sideRange.getStyleClass().add("side-range");
+        sideStatus.getStyleClass().add("muted");
+        sideCells.setMinHeight(48);
+
         logLabel.getStyleClass().add("log");
         logLabel.setWrapText(true);
         logLabel.setMaxWidth(Double.MAX_VALUE);
-        logLabel.setMinHeight(44);
+        logLabel.setMinHeight(54);
 
-        HBox legend = new HBox(
-                18,
-                legendItem("#f5c542", "харьцуулж/солилцож буй"),
-                legendItem("#b48cff", "pivot"),
-                legendItem("#7cc4f5", "боловсруулж буй зангилаа"),
-                legendItem("#6cd09e", "дууссан")
-        );
-        legend.setAlignment(Pos.CENTER_LEFT);
+        side = new VBox(8, sideTitle, sideRange, sideStatus,
+                sideCells, logLabel);
+        side.getStyleClass().add("card");
+        sideCells.prefWrapLengthProperty()
+                .bind(side.widthProperty().subtract(34));
 
+        // ---- мод ----
         pane.getChildren().addAll(lines, boxes);
         StackPane holder = new StackPane(pane);
         holder.setAlignment(Pos.TOP_CENTER);
 
-        ScrollPane scroll = new ScrollPane(holder);
+        scroll = new ScrollPane(holder);
         scroll.getStyleClass().add("viz-scroll");
         scroll.setFitToWidth(true);
         scroll.setFitToHeight(true);
-        scroll.setMinHeight(300);
-        scroll.setPrefHeight(440);
+        scroll.setMinHeight(320);
+        scroll.setPrefHeight(520);
         VBox.setVgrow(scroll, Priority.ALWAYS);
 
-        getChildren().addAll(controls, scrubber, logLabel, legend, scroll);
+        HBox legend = new HBox(
+                18,
+                legendItem("#e0b42f", "харьцуулж байгаа"),
+                legendItem("#8f74d6", "pivot"),
+                legendItem("#3b6fd4", "одоо ажиллаж байгаа"),
+                legendItem("#7fbf8a", "дууссан")
+        );
+        legend.setAlignment(Pos.CENTER_LEFT);
+
+        getChildren().addAll(controls, scrubber, scroll, legend);
 
         restartBtn.setOnAction(e -> {
             pause();
@@ -222,8 +236,11 @@ public class TreeCanvas extends VBox {
             }
         });
 
-        showMessage("Тоогоо оруулаад «Эрэмбэлэх» товчийг дарна уу — "
-                + "recursion tree энд гарна.");
+        showMessage("Тоогоо оруулаад «Эрэмбэлэх» дарна уу. Мод энд гарна.");
+    }
+
+    public VBox getSidePanel() {
+        return side;
     }
 
     private HBox legendItem(String color, String text) {
@@ -236,13 +253,12 @@ public class TreeCanvas extends VBox {
         return h;
     }
 
-    // ------------------------------------------------------------ public
-
     public void clear() {
         pause();
         stopAnims();
         trace = null;
         rootView = null;
+        current = null;
         views.clear();
         lines.getChildren().clear();
         boxes.getChildren().clear();
@@ -252,19 +268,22 @@ public class TreeCanvas extends VBox {
         pos = 0;
         stepLabel.setText("Алхам 0 / 0");
         logLabel.setText("");
+        sideRange.setText("—");
+        sideStatus.setText("");
+        sideCells.getChildren().clear();
         setControlsDisabled(true);
     }
 
     public void showMessage(String message) {
         clear();
         Label l = new Label(message);
-        l.setStyle("-fx-text-fill: #9a90a8; -fx-font-size: 14px;");
+        l.setStyle("-fx-text-fill: #6b7280; -fx-font-size: 14px;");
         l.setLayoutX(MARGIN);
         l.setLayoutY(MARGIN);
         boxes.getChildren().add(l);
-        pane.setPrefSize(760, 90);
-        pane.setMinSize(760, 90);
-        pane.setMaxSize(760, 90);
+        pane.setPrefSize(560, 90);
+        pane.setMinSize(560, 90);
+        pane.setMaxSize(560, 90);
     }
 
     public void load(SortTrace t) {
@@ -288,28 +307,27 @@ public class TreeCanvas extends VBox {
 
         setControlsDisabled(false);
         goTo(0);
-        play(false);   // starts automatically; the user can pause any time
+        play(false);  
     }
 
-    // ------------------------------------------------------- tree layout
 
     private View create(SortTrace.TNode n, View parent) {
         View v = new View(n);
         views.put(n, v);
 
-        v.w = Math.max(n.size() * CELL_W + 2 * PAD, 96);
+        v.w = Math.max(n.size() * CELL_W + 2 * PAD, MIN_BOX_W);
         v.box.setPrefSize(v.w, BOX_H);
         v.box.setMinSize(v.w, BOX_H);
         v.box.setMaxSize(v.w, BOX_H);
 
         v.title.setText(n.range());
-        v.title.setStyle("-fx-text-fill: #4a4458; -fx-font-weight: bold;"
+        v.title.setStyle("-fx-text-fill: #2b2f36; -fx-font-weight: bold;"
                 + " -fx-font-size: 13px;");
         v.title.setMinWidth(v.w);
         v.title.setAlignment(Pos.CENTER);
         v.title.setLayoutY(5);
 
-        v.status.setStyle("-fx-text-fill: #9a90a8; -fx-font-size: 10px;");
+        v.status.setStyle("-fx-text-fill: #6b7280; -fx-font-size: 10px;");
         v.status.setMinWidth(v.w);
         v.status.setAlignment(Pos.CENTER);
         v.status.setLayoutY(23);
@@ -337,10 +355,9 @@ public class TreeCanvas extends VBox {
 
         if (parent != null) {
             v.lineToParent = new Line();
-            v.lineToParent.setStroke(Color.web("#d6c9ea"));
-            v.lineToParent.setStrokeWidth(2);
+            v.lineToParent.setStroke(Color.web("#9aa0aa"));
+            v.lineToParent.setStrokeWidth(1.5);
             v.lineToParent.setStrokeLineCap(StrokeLineCap.ROUND);
-            v.lineToParent.getStrokeDashArray().addAll(7.0, 6.0);
             lines.getChildren().add(v.lineToParent);
         }
         return v;
@@ -386,8 +403,6 @@ public class TreeCanvas extends VBox {
         return d;
     }
 
-    // ---------------------------------------------------------- replaying
-
     private void resetView(View v) {
         v.revealed = (v == rootView);
         v.order = v.node.input.clone();
@@ -402,6 +417,7 @@ public class TreeCanvas extends VBox {
 
     private void goTo(int p) {
         stopAnims();
+        current = null;
         for (View v : views.values()) {
             resetView(v);
         }
@@ -410,6 +426,7 @@ public class TreeCanvas extends VBox {
         }
         pos = p;
         refreshInfo();
+        revealActive();
     }
 
     private boolean stepForward() {
@@ -420,6 +437,7 @@ public class TreeCanvas extends VBox {
         apply(trace.steps.get(pos), true);
         pos++;
         refreshInfo();
+        revealActive();
         return true;
     }
 
@@ -427,7 +445,7 @@ public class TreeCanvas extends VBox {
         for (SortTrace.TNode r : s.reveal) {
             View c = views.get(r);
             c.revealed = true;
-            c.statusText = "Хүлээгдэж байна";
+            c.statusText = "Хүлээж байна";
             render(c, false);
             if (animate) {
                 c.box.setOpacity(0);
@@ -450,6 +468,7 @@ public class TreeCanvas extends VBox {
             }
             v.done = s.done;
             v.active = !s.done;
+            current = v;
             render(v, animate);
         }
     }
@@ -498,37 +517,37 @@ public class TreeCanvas extends VBox {
                 c.toFront();
             }
 
-            c.setStyle(cellStyle(v, id));
+            c.setStyle(cellStyle(v, id, 15));
         }
     }
 
-    private String cellStyle(View v, int id) {
+    private String cellStyle(View v, int id, int fontSize) {
         String bg;
         String border;
         String text;
 
         if (v.done) {
-            bg = "#c9f0dc";
-            border = "#6cd09e";
-            text = "#1d5c40";
+            bg = "#cfe9d3";
+            border = "#7fbf8a";
+            text = "#1f4d2b";
         } else if (contains(v.hl, id)) {
-            bg = "#ffe7a0";
-            border = "#f5c542";
-            text = "#6b4e00";
+            bg = "#ffe08a";
+            border = "#e0b42f";
+            text = "#4a3a00";
         } else if (id == v.pivot) {
-            bg = "#b48cff";
-            border = "#9b6df0";
+            bg = "#b9a4f0";
+            border = "#8f74d6";
             text = "white";
         } else {
-            bg = "#f3eefc";
-            border = "#d8ccff";
-            text = "#4a4458";
+            bg = "#f1f2f5";
+            border = "#c9ccd2";
+            text = "#2b2f36";
         }
 
         return "-fx-background-color: " + bg + "; -fx-border-color: " + border
-                + "; -fx-border-radius: 8; -fx-background-radius: 8;"
+                + "; -fx-border-radius: 5; -fx-background-radius: 5;"
                 + " -fx-text-fill: " + text + ";"
-                + " -fx-font-size: 15px; -fx-font-weight: bold;";
+                + " -fx-font-size: " + fontSize + "px; -fx-font-weight: bold;";
     }
 
     private static boolean contains(int[] arr, int id) {
@@ -559,7 +578,69 @@ public class TreeCanvas extends VBox {
         pulses.clear();
     }
 
-    // ----------------------------------------------------------- controls
+    private void refreshSide() {
+        sideCells.getChildren().clear();
+
+        View v = current != null ? current : rootView;
+        if (v == null) {
+            sideRange.setText("—");
+            sideStatus.setText("");
+            return;
+        }
+
+        sideRange.setText(v.node.range());
+        sideStatus.setText(v.statusText);
+
+        for (int id : v.order) {
+            Label c = new Label(String.valueOf(trace.values[id]));
+            c.setMinSize(46, 40);
+            c.setPrefSize(46, 40);
+            c.setMaxSize(46, 40);
+            c.setAlignment(Pos.CENTER);
+            c.setStyle(cellStyle(v, id, 18));
+            sideCells.getChildren().add(c);
+        }
+    }
+
+    
+    private void revealActive() {
+        Platform.runLater(() -> {
+            View v = current != null ? current : rootView;
+            if (v == null) {
+                return;
+            }
+
+            double vw = scroll.getViewportBounds().getWidth();
+            double vh = scroll.getViewportBounds().getHeight();
+            if (vw <= 0 || vh <= 0) {
+                return;
+            }
+
+            double cw = Math.max(pane.getPrefWidth(), vw);
+            double ch = Math.max(pane.getPrefHeight(), vh);
+
+            if (cw > vw) {
+                double from = scroll.getHvalue() * (cw - vw);
+                if (v.x < from || v.x + v.w > from + vw) {
+                    double target = v.x + v.w / 2 - vw / 2;
+                    scroll.setHvalue(clamp(target / (cw - vw)));
+                }
+            }
+
+            if (ch > vh) {
+                double from = scroll.getVvalue() * (ch - vh);
+                if (v.y < from || v.y + BOX_H > from + vh) {
+                    double target = v.y + BOX_H / 2 - vh / 2;
+                    scroll.setVvalue(clamp(target / (ch - vh)));
+                }
+            }
+        });
+    }
+
+    private static double clamp(double x) {
+        return Math.max(0, Math.min(1, x));
+    }
+
 
     private void play(boolean immediate) {
         if (trace == null) {
@@ -569,7 +650,7 @@ public class TreeCanvas extends VBox {
             goTo(0);
         }
         playing = true;
-        playBtn.setText("⏸ Pause");
+        playBtn.setText("Зогсоох");
         if (immediate) {
             tick();
         }
@@ -593,7 +674,7 @@ public class TreeCanvas extends VBox {
         if (timeline != null) {
             timeline.stop();
         }
-        playBtn.setText("▶ Play");
+        playBtn.setText("Тоглуулах");
     }
 
     private void tick() {
@@ -609,7 +690,7 @@ public class TreeCanvas extends VBox {
 
         if (pos == 0) {
             logLabel.setText("Эхний массив: " + java.util.Arrays.toString(
-                    trace.values) + "  —  ▶ Play дарж эрэмбэлэлтийг эхлүүлнэ үү.");
+                    trace.values) + ". «Тоглуулах» дарж эхлүүлнэ үү.");
         } else {
             logLabel.setText(trace.steps.get(pos - 1).text);
         }
@@ -620,6 +701,8 @@ public class TreeCanvas extends VBox {
 
         backBtn.setDisable(pos == 0);
         fwdBtn.setDisable(pos >= n);
+
+        refreshSide();
     }
 
     private void setControlsDisabled(boolean disabled) {

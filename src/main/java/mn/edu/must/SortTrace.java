@@ -4,21 +4,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
-/**
- * Records, step by step, how Merge Sort / Quick Sort (with the same
- * threshold rules as MergeSortTask / QuickSortTask) rearrange the numbers
- * in every node of the recursion tree.
- *
- * Every number is tracked by an "id" (its original index), so the UI can
- * animate each number moving from one slot to another.
- *
- * The trace is generated sequentially (left subtree, then right subtree),
- * so the replay is deterministic even though the real fork-join run is
- * parallel.
- */
 public class SortTrace {
 
-    /** Visualization limit (more numbers make the tree unreadable). */
     public static final int MAX_SIZE = 32;
 
     public static class TNode {
@@ -42,14 +29,14 @@ public class SortTrace {
     }
 
     public static class Step {
-        public TNode node;                 // node whose cells change
-        public int[] order;                // new order of ids (null = unchanged)
-        public int[] hl = new int[0];      // highlighted ids (compared / moved)
-        public int pivot = -1;             // pivot id (Quick Sort)
-        public String status;              // short status shown in the node
-        public boolean done;               // node finished
-        public final List<TNode> reveal = new ArrayList<>(); // nodes appearing
-        public String text;                // explanation shown to the user
+        public TNode node;    
+        public int[] order;             
+        public int[] hl = new int[0];   
+        public int pivot = -1;        
+        public String status;        
+        public boolean done;           
+        public final List<TNode> reveal = new ArrayList<>();
+        public String text;         
     }
 
     public final int[] values;
@@ -77,11 +64,10 @@ public class SortTrace {
         t.root = new TNode(0, n - 1);
         t.root.input = ids.clone();
 
-        t.resultIds = mergeSort ? t.merge(t.root, ids) : t.quick(t.root, ids);
+        t.resultIds = mergeSort ? t.merge(t.root, ids) : t.quick(t.root, ids, 0);
         return t;
     }
 
-    /** Final sorted values according to the trace. */
     public int[] sortedValues() {
         int[] out = new int[resultIds.length];
         for (int i = 0; i < out.length; i++) {
@@ -90,7 +76,6 @@ public class SortTrace {
         return out;
     }
 
-    // ------------------------------------------------------------ helpers
 
     private Step step(TNode n, int[] order, String status,
                       boolean done, String text) {
@@ -107,8 +92,8 @@ public class SortTrace {
     private int[] insertion(TNode n, int[] ids) {
         int[] cur = ids.clone();
 
-        step(n, null, "Insertion sort", false,
-                n.range() + ": хэмжээ ≤ threshold → энгийн (insertion) эрэмбэлэлт");
+        step(n, null, "Энгийн эрэмбэлэлт", false,
+                n.range() + " жижиг тул энгийн эрэмбэлэлт хийнэ");
 
         for (int i = 1; i < cur.length; i++) {
             for (int j = i; j > 0
@@ -121,8 +106,8 @@ public class SortTrace {
                 cur[j - 1] = cur[j];
                 cur[j] = tmp;
 
-                Step s = step(n, cur, "Insertion sort", false,
-                        "Солилцоо: " + x + " ↔ " + y);
+                Step s = step(n, cur, "Энгийн эрэмбэлэлт", false,
+                        "Солилцлоо: " + x + " ба " + y);
                 s.hl = new int[]{cur[j], cur[j - 1]};
             }
         }
@@ -131,15 +116,13 @@ public class SortTrace {
         return cur;
     }
 
-    // --------------------------------------------------------- merge sort
-
     private int[] merge(TNode n, int[] ids) {
         n.input = ids.clone();
         int len = ids.length;
 
         if (len == 1) {
-            step(n, null, "Нэг элемент — дууссан", true,
-                    n.range() + ": нэг элемент, эрэмбэлэх шаардлагагүй");
+            step(n, null, "Дууссан", true,
+                    n.range() + " нэг тоо тул эрэмбэлэх шаардлагагүй");
             return ids;
         }
 
@@ -147,7 +130,7 @@ public class SortTrace {
             return insertion(n, ids);
         }
 
-        int m = (len - 1) / 2 + 1;   // same split as MergeSortTask
+        int m = (len - 1) / 2 + 1;
         int[] lIds = Arrays.copyOfRange(ids, 0, m);
         int[] rIds = Arrays.copyOfRange(ids, m, len);
 
@@ -158,8 +141,8 @@ public class SortTrace {
         n.children.add(ln);
         n.children.add(rn);
 
-        Step split = step(n, null, "Задарч байна (fork)", false,
-                "fork: " + n.range() + " → " + ln.range() + " + " + rn.range());
+        Step split = step(n, null, "Хуваагдаж байна", false,
+                n.range() + "-г хоёр хэсэг болгов: " + ln.range() + " ба " + rn.range());
         split.reveal.add(ln);
         split.reveal.add(rn);
 
@@ -171,8 +154,8 @@ public class SortTrace {
         System.arraycopy(l, 0, joined, 0, l.length);
         System.arraycopy(r, 0, joined, l.length, r.length);
 
-        step(n, joined, "Нэгтгэл (join)", false,
-                "join: эрэмбэлэгдсэн хагасууд " + n.range() + "-д буцаж ирлээ");
+        step(n, joined, "Хоёр хагас ирлээ", false,
+                "Хоёр хагас эрэмбэлэгдээд " + n.range() + "-д буцаж ирлээ");
 
         int i = 0;
         int j = 0;
@@ -201,7 +184,7 @@ public class SortTrace {
             }
 
             Step s = step(n, order, "Нэгтгэж байна", false,
-                    values[a] + " ба " + values[b] + "-г харьцуулав → "
+                    values[a] + " ба " + values[b] + "-г харьцууллаа → "
                             + (takeLeft ? values[a] : values[b]) + "-г авлаа");
             s.hl = new int[]{a, b};
         }
@@ -213,19 +196,39 @@ public class SortTrace {
             out[k++] = r[j++];
         }
 
-        step(n, out, "Дууссан", true, n.range() + " нэгтгэл дууслаа");
+        step(n, out, "Дууссан", true, n.range() + " эрэмбэлэгдлээ");
         return out;
     }
+    private int cmp(int idA, int idB) {
+        return Integer.compare(values[idA], values[idB]);
+    }
 
-    // --------------------------------------------------------- quick sort
+    private static void swap(int[] cur, int i, int j) {
+        int t = cur[i];
+        cur[i] = cur[j];
+        cur[j] = t;
+    }
 
-    private int[] quick(TNode n, int[] ids) {
+    private void medianSwap(TNode n, int[] cur, int i, int j) {
+        int idI = cur[i];
+        int idJ = cur[j];
+        int a = values[idI];
+        int b = values[idJ];
+
+        swap(cur, i, j);
+
+        Step s = step(n, cur, "Pivot сонгож байна", false,
+                "Pivot сонгохын тулд " + a + " ба " + b + "-г солилцлоо");
+        s.hl = new int[]{idI, idJ};
+    }
+
+    private int[] quick(TNode n, int[] ids, int depth) {
         n.input = ids.clone();
         int len = ids.length;
 
         if (len == 1) {
-            step(n, null, "Нэг элемент — дууссан", true,
-                    n.range() + ": нэг элемент, эрэмбэлэх шаардлагагүй");
+            step(n, null, "Дууссан", true,
+                    n.range() + " нэг тоо тул эрэмбэлэх шаардлагагүй");
             return ids;
         }
 
@@ -233,73 +236,102 @@ public class SortTrace {
             return insertion(n, ids);
         }
 
+        if (depth > QuickSortTask.depthLimit(values.length)) {
+            Integer[] boxed = new Integer[len];
+            for (int i = 0; i < len; i++) {
+                boxed[i] = ids[i];
+            }
+            Arrays.sort(boxed, (a, b) -> Integer.compare(values[a], values[b]));
+            int[] sorted = new int[len];
+            for (int i = 0; i < len; i++) {
+                sorted[i] = boxed[i];
+            }
+            step(n, sorted, "Arrays.sort", true,
+                    n.range() + " гүн хэтэрсэн тул Arrays.sort ашиглав");
+            return sorted;
+        }
+
         int[] cur = ids.clone();
-        int pivotId = cur[len - 1];
+        int l = 0;
+        int r = len - 1;
+        int m = (len - 1) / 2;
+
+        if (cmp(cur[m], cur[l]) < 0) {
+            medianSwap(n, cur, m, l);
+        }
+        if (cmp(cur[r], cur[l]) < 0) {
+            medianSwap(n, cur, r, l);
+        }
+        if (cmp(cur[r], cur[m]) < 0) {
+            medianSwap(n, cur, r, m);
+        }
+
+        int pivotId = cur[m];
         int pv = values[pivotId];
 
-        Step first = step(n, null, "Partition", false,
-                n.range() + ": pivot = " + pv + " (сүүлийн элемент)");
+        Step first = step(n, null, "Pivot-оор хуваана", false,
+                n.range() + " Pivot = " + pv
+                        + " (эхний, дунд, сүүлийн 3 тооны голын утга)");
         first.pivot = pivotId;
 
-        int i = -1;
+        int lt = 0;
+        int i = 0;
+        int gt = len - 1;
 
-        for (int j = 0; j < len - 1; j++) {
-            int idJ = cur[j];
+        while (i <= gt) {
+            int idI = cur[i];
+            int c = cmp(idI, pivotId);
             int[] hl;
             String text;
 
-            if (values[idJ] <= pv) {
+            if (c < 0) {
+                int idL = cur[lt];
+                swap(cur, lt, i);
+                lt++;
                 i++;
-                int idI = cur[i];
-
-                if (i != j) {
-                    cur[i] = idJ;
-                    cur[j] = idI;
-                    text = values[idJ] + " ≤ " + pv + " → " + i
-                            + "-р байрлалтай солилцоо";
-                    hl = new int[]{idJ, idI};
-                } else {
-                    text = values[idJ] + " ≤ " + pv + " → байрандаа үлдлээ";
-                    hl = new int[]{idJ};
-                }
+                hl = new int[]{idI, idL};
+                text = values[idI] + " < " + pv + " → зүүн тийш";
+            } else if (c > 0) {
+                int idG = cur[gt];
+                swap(cur, i, gt);
+                gt--;
+                hl = new int[]{idI, idG};
+                text = values[idI] + " > " + pv + " → баруун тийш";
             } else {
-                text = values[idJ] + " > " + pv + " → баруун талд үлдэнэ";
-                hl = new int[]{idJ};
+                i++;
+                hl = new int[]{idI};
+                text = values[idI] + " = " + pv + " → голд үлдэнэ";
             }
 
-            Step s = step(n, cur, "Partition", false, text);
+            Step s = step(n, cur, "Pivot-оор хуваана", false, text);
             s.hl = hl;
             s.pivot = pivotId;
         }
 
-        int p = i + 1;
-        int tmp = cur[p];
-        cur[p] = cur[len - 1];
-        cur[len - 1] = tmp;
-
-        Step placed = step(n, cur, "Partition", false,
-                "pivot " + pv + " эцсийн байрандаа орлоо ("
-                        + (n.left + p) + "-р байр)");
+        Step placed = step(n, cur, "Pivot-оор хуваана", false,
+                "Хуваалт дууслаа: зүүн тал " + lt + " тоо, голд "
+                        + (gt - lt + 1) + " тоо, баруун тал "
+                        + (len - 1 - gt) + " тоо");
         placed.pivot = pivotId;
 
         TNode ln = null;
         TNode rn = null;
 
-        if (p >= 2) {
-            ln = new TNode(n.left, n.left + p - 1);
-            ln.input = Arrays.copyOfRange(cur, 0, p);
+        if (lt >= 2) {
+            ln = new TNode(n.left, n.left + lt - 1);
+            ln.input = Arrays.copyOfRange(cur, 0, lt);
             n.children.add(ln);
         }
 
-        if (len - 1 - p >= 2) {
-            rn = new TNode(n.left + p + 1, n.right);
-            rn.input = Arrays.copyOfRange(cur, p + 1, len);
+        if (len - 1 - gt >= 2) {
+            rn = new TNode(n.left + gt + 1, n.right);
+            rn.input = Arrays.copyOfRange(cur, gt + 1, len);
             n.children.add(rn);
         }
 
         if (ln != null || rn != null) {
-            Step split = step(n, null, "Задарч байна (fork)", false,
-                    "fork: pivot-ын зүүн, баруун талыг дэд даалгавар болгов");
+            Step split = step(n, null, "Хуваагдаж байна", false,
+                    "Pivot-ын зүүн, баруун талыг тусад нь эрэмбэлнэ");
             split.pivot = pivotId;
             if (ln != null) {
                 split.reveal.add(ln);
@@ -312,17 +344,17 @@ public class SortTrace {
         int[] res = cur.clone();
 
         if (ln != null) {
-            int[] s = quick(ln, ln.input);
+            int[] s = quick(ln, ln.input, depth + 1);
             System.arraycopy(s, 0, res, 0, s.length);
         }
 
         if (rn != null) {
-            int[] s = quick(rn, rn.input);
-            System.arraycopy(s, 0, res, p + 1, s.length);
+            int[] s = quick(rn, rn.input, depth + 1);
+            System.arraycopy(s, 0, res, gt + 1, s.length);
         }
 
         step(n, res, "Дууссан", true,
-                "join: " + n.range() + " эрэмбэлэгдлээ");
+                n.range() + " эрэмбэлэгдлээ");
         return res;
     }
 }

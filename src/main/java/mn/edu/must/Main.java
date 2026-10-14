@@ -17,6 +17,23 @@ public class Main extends Application {
     private static final String DEFAULT_THRESHOLD = "2";
     private static final int MAX_SHOWN = 40;
 
+    private static final String[][] SAMPLES = {
+            {"Номын жишээ",
+                    "7, 12, 19, 3, 18, 4, 2, 6, 15, 8", "2"},
+            {"Threshold = 1",
+                    "7, 12, 19, 3, 18, 4, 2, 6, 15, 8", "1"},
+            {"Эрэмбэлэгдсэн",
+                    "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16",
+                    "2"},
+            {"Урвуу эрэмбэтэй",
+                    "16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1",
+                    "2"},
+            {"Бүгд адил", "5, 5, 5, 5, 5, 5, 5, 5", "2"},
+            {"Давтагдсан тоотой", "4, 2, 4, 1, 2, 4, 1, 3, 3, 2", "2"},
+            {"Сөрөг, 0 тоотой", "-5, 3, 0, -9, 8, -1, 0, 7", "2"},
+            {"Нэг тоо", "42", "2"}
+    };
+
     private TextField numbersField;
     private TextField thresholdField;
     private ToggleButton mergeToggle;
@@ -31,28 +48,26 @@ public class Main extends Application {
     @Override
     public void start(Stage stage) {
 
-        // ------------------------------------------------------ header
         Label title = new Label("Fork-Join Sorting");
         title.getStyleClass().add("app-title");
 
+        Label subtitle = new Label(
+                "Тоонуудыг хоёр хэсэг болгон хуваагаад, эрэмбэлээд, "
+                + "буцааж нэгтгэхийг мод хэлбэрээр харуулна");
+        subtitle.getStyleClass().add("app-subtitle");
 
-        Region rainbow = new Region();
-        rainbow.getStyleClass().add("rainbow");
+        VBox header = new VBox(2, title, subtitle);
 
-        VBox header = new VBox(4, title, spacer(6), rainbow);
-
-        // ------------------------------------------------------ inputs
         numbersField = new TextField(DEFAULT_NUMBERS);
         numbersField.setPromptText("8, 3, 6, 1, 9, 2, 7, 4");
-        HBox.setHgrow(numbersField, Priority.ALWAYS);
 
         thresholdField = new TextField(DEFAULT_THRESHOLD);
-        thresholdField.setPrefWidth(64);
-        thresholdField.setMaxWidth(64);
+        thresholdField.setPrefWidth(70);
+        thresholdField.setMaxWidth(70);
 
         TextField sizeField = new TextField("16");
-        sizeField.setPrefWidth(64);
-        sizeField.setMaxWidth(64);
+        sizeField.setPrefWidth(70);
+        sizeField.setMaxWidth(70);
 
         ToggleGroup group = new ToggleGroup();
         mergeToggle = new ToggleButton("Merge Sort");
@@ -64,44 +79,46 @@ public class Main extends Application {
         mergeToggle.setSelected(true);
         group.selectedToggleProperty().addListener((o, old, now) -> {
             if (now == null && old != null) {
-                old.setSelected(true);   // one algorithm is always selected
+                old.setSelected(true);
             }
         });
 
-        Button generateButton = new Button("Санамсаргүй");
-        generateButton.getStyleClass().add("btn-ghost");
+        ComboBox<String> samplesBox = new ComboBox<>();
+        samplesBox.setPromptText("Жишээ сонгох");
+        samplesBox.setMaxWidth(Double.MAX_VALUE);
+        for (String[] sample : SAMPLES) {
+            samplesBox.getItems().add(sample[0]);
+        }
+
+        Button generateButton = new Button("Үүсгэх");
 
         Button resetButton = new Button("Reset");
-        resetButton.getStyleClass().add("btn-ghost");
+        resetButton.setMaxWidth(Double.MAX_VALUE);
+        HBox.setHgrow(resetButton, Priority.ALWAYS);
 
         Button sortButton = new Button("Эрэмбэлэх");
         sortButton.getStyleClass().add("btn-primary");
+        sortButton.setMaxWidth(Double.MAX_VALUE);
         sortButton.setDefaultButton(true);
+        HBox.setHgrow(sortButton, Priority.ALWAYS);
 
-        HBox row1 = new HBox(
-                10, keyLabel("Тоонууд"), numbersField
+        HBox buttonRow = new HBox(8, resetButton, sortButton);
+
+        VBox inputCard = new VBox(
+                8,
+                keyLabel("Тоонууд (таслалаар тусгаарлана)"),
+                numbersField,
+                spacer(2),
+                row(rowKey("Threshold"), thresholdField),
+                row(rowKey("Алгоритм"), mergeToggle, quickToggle),
+                row(rowKey("Санамсаргүй тоо"), sizeField, generateButton),
+                row(rowKey("Жишээ"), samplesBox),
+                spacer(2),
+                buttonRow
         );
-        row1.setAlignment(Pos.CENTER_LEFT);
-
-        Region grow = new Region();
-        HBox.setHgrow(grow, Priority.ALWAYS);
-
-        HBox row2 = new HBox(
-                10,
-                keyLabel("Threshold"), thresholdField,
-                spacer(8, true),
-                keyLabel("Алгоритм"), mergeToggle, quickToggle,
-                grow,
-                keyLabel("Хэмжээ"), sizeField, generateButton,
-                spacer(8, true),
-                resetButton, sortButton
-        );
-        row2.setAlignment(Pos.CENTER_LEFT);
-
-        VBox inputCard = new VBox(12, row1, row2);
         inputCard.getStyleClass().add("card");
+        HBox.setHgrow(samplesBox, Priority.ALWAYS);
 
-        // ------------------------------------------------------ result
         originalLabel = resultLine();
         sortedLabel = resultLine();
         statsLabel = new Label("");
@@ -109,45 +126,68 @@ public class Main extends Application {
         statsLabel.setWrapText(true);
         statusLabel = new Label("Бэлэн.");
         statusLabel.getStyleClass().add("muted");
+        statusLabel.setWrapText(true);
 
         VBox resultCard = new VBox(
-                6,
-                lineRow("Эхний", originalLabel),
-                lineRow("Дараа", sortedLabel),
+                4,
+                keyLabel("Өгөгдөл"), originalLabel,
+                spacer(2),
+                keyLabel("Үр дүн"), sortedLabel,
+                spacer(2),
                 statsLabel,
                 statusLabel
         );
         resultCard.getStyleClass().add("card");
 
-        // ------------------------------------------------------- tree
         treeCanvas = new TreeCanvas();
-        VBox.setVgrow(treeCanvas, Priority.ALWAYS);
+
+        VBox left = new VBox(12, inputCard, resultCard,
+                treeCanvas.getSidePanel());
+        left.setPrefWidth(350);
+        left.setMinWidth(350);
+        left.setMaxWidth(350);
+
+        ScrollPane leftScroll = new ScrollPane(left);
+        leftScroll.setFitToWidth(true);
+        leftScroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        leftScroll.setPrefWidth(372);
+        leftScroll.setMinWidth(372);
+
+        HBox body = new HBox(14, leftScroll, treeCanvas);
+        HBox.setHgrow(treeCanvas, Priority.ALWAYS);
 
         Label footer = new Label(
                 "F.CSM302 Үйлдлийн систем · Бие даалт 1 · Fork-Join Sorting");
         footer.getStyleClass().add("footer");
 
-        VBox root = new VBox(
-                14, header, inputCard, resultCard, treeCanvas, footer
-        );
-        root.setPadding(new Insets(22, 28, 14, 28));
-        root.setAlignment(Pos.TOP_CENTER);
-        footer.setAlignment(Pos.CENTER);
+        VBox root = new VBox(12, header, body, footer);
+        VBox.setVgrow(body, Priority.ALWAYS);
+        root.setPadding(new Insets(16, 20, 10, 20));
 
-        // ---------------------------------------------------- actions
         sortButton.setOnAction(event -> sortNumbers());
+
+        samplesBox.setOnAction(event -> {
+            int idx = samplesBox.getSelectionModel().getSelectedIndex();
+            if (idx >= 0) {
+                numbersField.setText(SAMPLES[idx][1]);
+                thresholdField.setText(SAMPLES[idx][2]);
+                setStatus("Жишээ ачааллаа: " + SAMPLES[idx][0]
+                        + ". «Эрэмбэлэх» дарна уу.", 0);
+            }
+        });
 
         resetButton.setOnAction(event -> {
             numbersField.setText(DEFAULT_NUMBERS);
             thresholdField.setText(DEFAULT_THRESHOLD);
             mergeToggle.setSelected(true);
+            samplesBox.getSelectionModel().clearSelection();
             originalLabel.setText("—");
             sortedLabel.setText("—");
             statsLabel.setText("");
             setStatus("Бэлэн.", 0);
             treeCanvas.showMessage(
-                    "Тоогоо оруулаад «Эрэмбэлэх» товчийг дарна уу — "
-                    + "recursion tree энд гарна.");
+                    "Тоогоо оруулаад «Эрэмбэлэх» дарна уу. "
+                    + "Мод энд гарна.");
         });
 
         generateButton.setOnAction(event -> {
@@ -184,17 +224,16 @@ public class Main extends Application {
         originalLabel.setText("—");
         sortedLabel.setText("—");
 
-        Scene scene = new Scene(root, 1120, 880);
+        Scene scene = new Scene(root, 1280, 860);
         Theme.apply(scene);
 
         stage.setTitle("Fork-Join Sorting");
-        stage.setMinWidth(1020);
-        stage.setMinHeight(720);
+        stage.setMinWidth(1050);
+        stage.setMinHeight(700);
         stage.setScene(scene);
         stage.show();
     }
 
-    // ------------------------------------------------------ UI helpers
 
     private Label keyLabel(String text) {
         Label l = new Label(text);
@@ -202,20 +241,23 @@ public class Main extends Application {
         return l;
     }
 
+    private Label rowKey(String text) {
+        Label l = keyLabel(text);
+        l.setMinWidth(112);
+        return l;
+    }
+
+    private HBox row(javafx.scene.Node... nodes) {
+        HBox h = new HBox(8, nodes);
+        h.setAlignment(Pos.CENTER_LEFT);
+        return h;
+    }
+
     private Label resultLine() {
         Label l = new Label("—");
         l.setWrapText(true);
         l.setMaxWidth(Double.MAX_VALUE);
-        HBox.setHgrow(l, Priority.ALWAYS);
         return l;
-    }
-
-    private HBox lineRow(String key, Label value) {
-        Label k = keyLabel(key);
-        k.setMinWidth(54);
-        HBox row = new HBox(10, k, value);
-        row.setAlignment(Pos.TOP_LEFT);
-        return row;
     }
 
     private Region spacer(double h) {
@@ -225,14 +267,6 @@ public class Main extends Application {
         return r;
     }
 
-    private Region spacer(double w, boolean horizontal) {
-        Region r = new Region();
-        r.setMinWidth(w);
-        r.setPrefWidth(w);
-        return r;
-    }
-
-    /** kind: 0 = normal, 1 = ok, 2 = warning */
     private void setStatus(String text, int kind) {
         statusLabel.setText(text);
         statusLabel.getStyleClass().removeAll(
@@ -241,7 +275,6 @@ public class Main extends Application {
                 kind == 1 ? "status-ok" : kind == 2 ? "status-warn" : "muted");
     }
 
-    /** Short text for an array: shows at most MAX_SHOWN values. */
     private String format(int[] values) {
         if (values.length <= MAX_SHOWN) {
             return Arrays.toString(values);
@@ -255,7 +288,19 @@ public class Main extends Application {
         return mergeToggle.isSelected();
     }
 
-    // --------------------------------------------------------- sorting
+    private boolean sameTree(SortNode real, SortTrace.TNode traced) {
+        if (real.getLeft() != traced.left
+                || real.getRight() != traced.right
+                || real.getChildren().size() != traced.children.size()) {
+            return false;
+        }
+        for (int i = 0; i < traced.children.size(); i++) {
+            if (!sameTree(real.getChildren().get(i), traced.children.get(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
 
     private void sortNumbers() {
         try {
@@ -278,7 +323,7 @@ public class Main extends Application {
             }
 
             String[] parts = input.split(",", -1);
-            int[] numbers = new int[parts.length];
+            Integer[] numbers = new Integer[parts.length];
 
             for (int i = 0; i < parts.length; i++) {
                 if (parts[i].trim().isEmpty()) {
@@ -290,36 +335,29 @@ public class Main extends Application {
                 numbers[i] = Integer.parseInt(parts[i].trim());
             }
 
-            int[] original = numbers.clone();
+            int[] original = new int[numbers.length];
+            for (int i = 0; i < numbers.length; i++) {
+                original[i] = numbers[i];
+            }
+
             boolean mergeSort = isMergeSort();
             String algoName = mergeSort ? "Merge Sort" : "Quick Sort";
 
-            // ---- real fork-join run (used for the result and timing) ----
-            long startTime = System.nanoTime();
-
             ForkJoinPool pool = new ForkJoinPool();
+            int parallelism = pool.getParallelism();
             SortNode rootNode;
+            long startTime = System.nanoTime();
 
             try {
                 if (mergeSort) {
-                    MergeSortTask task = new MergeSortTask(
-                            numbers,
-                            0,
-                            numbers.length - 1,
-                            threshold
-                    );
-
+                    MergeSortTask<Integer> task = new MergeSortTask<>(
+                            numbers, 0, numbers.length - 1, threshold);
                     pool.invoke(task);
                     rootNode = task.getRootNode();
 
                 } else {
-                    QuickSortTask task = new QuickSortTask(
-                            numbers,
-                            0,
-                            numbers.length - 1,
-                            threshold
-                    );
-
+                    QuickSortTask<Integer> task = new QuickSortTask<>(
+                            numbers, 0, numbers.length - 1, threshold);
                     pool.invoke(task);
                     rootNode = task.getRootNode();
                 }
@@ -330,37 +368,47 @@ public class Main extends Application {
             double elapsedMs =
                     (System.nanoTime() - startTime) / 1_000_000.0;
 
+            int[] sorted = new int[numbers.length];
+            for (int i = 0; i < numbers.length; i++) {
+                sorted[i] = numbers[i];
+            }
+
             originalLabel.setText(format(original));
-            sortedLabel.setText(format(numbers));
+            sortedLabel.setText(format(sorted));
 
             statsLabel.setText(String.format(
                     "%s · %.3f ms · %d тоо · threshold %d · "
-                    + "%d зангилаа · гүн %d",
+                    + "%d зангилаа · гүн %d · parallelism %d",
                     algoName,
                     elapsedMs,
-                    numbers.length,
+                    sorted.length,
                     threshold,
                     countNodes(rootNode),
-                    calculateDepth(rootNode)
+                    calculateDepth(rootNode),
+                    parallelism
             ));
 
-            // ---- step-by-step animated replay of the same algorithm ----
             if (original.length <= SortTrace.MAX_SIZE) {
                 SortTrace trace = SortTrace.build(
                         original, threshold, mergeSort
                 );
 
-                if (Arrays.equals(trace.sortedValues(), numbers)) {
-                    setStatus("✔ Эрэмбэлэлт амжилттай.", 1);
+                boolean sameResult =
+                        Arrays.equals(trace.sortedValues(), sorted);
+                boolean sameShape = sameTree(rootNode, trace.root);
+
+                if (sameResult && sameShape) {
+                    setStatus("Амжилттай эрэмбэллээ. Мод нь бодит "
+                            + "fork-join-той яг таарч байна.", 1);
                 } else {
-                    setStatus("⚠ Дүрслэлийн үр дүн fork-join-той зөрүүтэй "
+                    setStatus("Анхаар: мод бодит fork-join-той таараагүй "
                             + "байна.", 2);
                 }
 
                 treeCanvas.load(trace);
 
             } else {
-                setStatus("✔ Эрэмбэлэлт амжилттай.", 1);
+                setStatus("Амжилттай эрэмбэллээ.", 1);
                 treeCanvas.showMessage(
                         "Дүрслэл зөвхөн " + SortTrace.MAX_SIZE
                         + " хүртэл тоотой үед ажиллана (одоо "
@@ -371,11 +419,16 @@ public class Main extends Application {
 
         } catch (NumberFormatException e) {
             showError(
-                    "Тоонууд болон threshold-д бүхэл тоо оруулна уу."
+                    "Тоонууд болон threshold-д бүхэл тоо оруулна уу "
+                    + "(−2147483648 … 2147483647)."
             );
 
         } catch (IllegalArgumentException e) {
             showError(e.getMessage());
+
+        } catch (StackOverflowError e) {
+            showError("Рекурсийн гүн хэт их болсон тул эрэмбэлж чадсангүй. "
+                    + "Threshold-ийг ихэсгэх эсвэл өгөгдлийг багасгана уу.");
         }
     }
 
