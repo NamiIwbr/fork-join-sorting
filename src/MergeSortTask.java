@@ -1,5 +1,3 @@
-package mn.edu.must;
-
 import java.util.Arrays;
 import java.util.Objects;
 import java.util.concurrent.RecursiveAction;

@@ -1,5 +1,3 @@
-package mn.edu.must;
-
 import java.util.Arrays;
 import java.util.Random;
 import java.util.concurrent.ForkJoinPool;

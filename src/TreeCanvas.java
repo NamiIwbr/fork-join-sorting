@@ -1,5 +1,3 @@
-package mn.edu.must;
-
 import javafx.animation.FadeTransition;
 import javafx.animation.KeyFrame;
 import javafx.animation.ScaleTransition;
