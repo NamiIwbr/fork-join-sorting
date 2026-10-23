@@ -18,9 +18,9 @@ Merge Sort болон Quick Sort-ийг Java-ийн fork-join параллели
 ## Quick Start
 
 Шаардлага
-
-- JDK 17 эсвэл түүнээс дээш (`java -version`-р шалгана)
-- Maven (`mvn -version`) эсвэл JavaFX SDK (https://openjfx.io)
+- JDK 23 эсвэл түүнээс дээш (`java -version`-р шалгана)
+- Apache Maven
+- JavaFX 23.0.2 (Maven dependency-ээр татагдана)
 
 Ажиллуулах (Maven)
     mvn clean javafx:run
@@ -54,7 +54,21 @@ Merge Sort болон Quick Sort-ийг Java-ийн fork-join параллели
 - Буруу оролт (хоосон, илүү таслал, бүхэл биш тоо, threshold < 1) ойлгомжтой алдааны цонхоор мэдэгдэнэ.
 
 Тест ажиллуулах
-    mkdir -p out javac -encoding UTF-8 -d out src/SortNode.java src/MergeSortTask.java src/QuickSortTask.java src/SortTrace.java tests/SortTests.java java -cp out SortTests
-    Хүлээгдэх үр дүн: `passed=9111 failed=0`
+    tests/SortTests.java нь JUnit тест биш, main() функцээр ажилладаг тусдаа тестийн програм юм. Иймээс mvn test командаар эдгээр тест автоматаар ажиллахгүй.
 
-    Тест нь номын жишээ (7, 12, 19, 3, 18, 4, 2, 6, 15, 8), захын тохиолдлууд (нэг элемент, давхардсан, сөрөг, бүгд адил, эрэмбэлэгдсэн, урвуу), 10000 тоотой оролт, `String` эрэмбэлэлт, мөн дүрслэлийн мод бодит модтой таарч байгааг шалгана.
+    Төслийн root хавтаснаас дараах командуудыг дарааллаар ажиллуулна:
+        mkdir -p out
+        javac -encoding UTF-8 -d out src/SortNode.java src/MergeSortTask.java src/QuickSortTask.java src/SortTrace.java tests/SortTests.java
+        java -cp out SortTests
+
+    Амжилттай ажиллавал хүлээгдэх үр дүн: passed=9111 failed=0
+
+### Ашигласан технологи, сангууд
+- **Java** — програмын үндсэн логик болон эрэмбэлэлтийн алгоритмуудыг хэрэгжүүлэхэд ашигласан.
+- **JavaFX** — график хэрэглэгчийн интерфейс бүтээхэд ашигласан.
+- **Java Fork-Join Framework** — эрэмбэлэлтийн дэд бодлогуудыг parallel боловсруулахад ашигласан.
+- **Apache Maven** — төслийн хамаарал болон build тохиргоог удирдахад ашигласан.
+
+### AI-ийн хэрэглээ
+ChatGPT-ийг кодын бүтэц, алгоритмын ажиллагаа, алдаа засварлалтын талаар зөвлөгөө авахад ашигласан.
+

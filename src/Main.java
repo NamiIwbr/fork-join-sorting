@@ -411,7 +411,6 @@ public class Main extends Application {
                         "Дүрслэл зөвхөн " + SortTrace.MAX_SIZE
                         + " хүртэл тоотой үед ажиллана (одоо "
                         + original.length + " тоо байна). "
-                        + "Эрэмбэлэлт хийгдсэн, үр дүнг дээрээс харна уу."
                 );
             }
 
