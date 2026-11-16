@@ -2,14 +2,32 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+/**
+ * Алхамчилсан тайлбарын trace. Бодит алгоритмтай ижил хуваалт хийж,
+ * алхам бүрийг (FORK, PARTITION, LEAF, JOIN, MERGE, DONE) хадгална.
+ *
+ * Анхаар: энэ trace нь дарааллыг тайлбарлах зориулалттай, нэг thread-ээр
+ * тооцоологддог. Бодит thread-үүдийн гүйцэтгэлийн дараалал ба хугацааг
+ * ExecutionLog / ThreadTimeline харуулна (BD2, шүүмж A2).
+ */
 public class SortTrace {
 
     public static final int MAX_SIZE = 32;
+
+    public static final String FORK = "FORK";
+    public static final String COMPUTE = "COMPUTE";
+    public static final String JOIN = "JOIN";
+    public static final String LEAF = "LEAF";
+    public static final String MERGE = "MERGE";
+    public static final String PARTITION = "PARTITION";
+    public static final String DONE = "DONE";
 
     public static class TNode {
         public final int left;
         public final int right;
         public int[] input;
+        /** Эцэг нь энэ хэсгийг fork() хийсэн бол true, compute() бол false. */
+        public boolean forked;
         public final List<TNode> children = new ArrayList<>();
 
         TNode(int left, int right) {
@@ -27,14 +45,16 @@ public class SortTrace {
     }
 
     public static class Step {
-        public TNode node;    
-        public int[] order;             
-        public int[] hl = new int[0];   
-        public int pivot = -1;        
-        public String status;        
-        public boolean done;           
+        public TNode node;
+        public int[] order;
+        public int[] hl = new int[0];
+        public int pivot = -1;
+        public String status;
+        public boolean done;
         public final List<TNode> reveal = new ArrayList<>();
-        public String text;         
+        public String text;
+        /** FORK, COMPUTE, JOIN, LEAF, MERGE, PARTITION, DONE. */
+        public String phase = "";
     }
 
     public final int[] values;
@@ -51,6 +71,9 @@ public class SortTrace {
 
     public static SortTrace build(int[] values, int threshold,
                                   boolean mergeSort) {
+        if (threshold < 1) {
+            throw new IllegalArgumentException("threshold must be >= 1");
+        }
         SortTrace t = new SortTrace(values, threshold);
 
         int n = values.length;
@@ -74,15 +97,19 @@ public class SortTrace {
         return out;
     }
 
+    public long countPhase(String phase) {
+        return steps.stream().filter(s -> phase.equals(s.phase)).count();
+    }
 
     private Step step(TNode n, int[] order, String status,
-                      boolean done, String text) {
+                      boolean done, String text, String phase) {
         Step s = new Step();
         s.node = n;
         s.order = order == null ? null : order.clone();
         s.status = status;
         s.done = done;
         s.text = text;
+        s.phase = phase;
         steps.add(s);
         return s;
     }
@@ -91,7 +118,9 @@ public class SortTrace {
         int[] cur = ids.clone();
 
         step(n, null, "Энгийн эрэмбэлэлт", false,
-                n.range() + " жижиг тул энгийн эрэмбэлэлт хийнэ");
+                "LEAF: " + n.range() + " нь threshold (" + threshold
+                        + ")-оос жижиг тул дахин fork хийхгүй, "
+                        + "insertion sort-оор шууд эрэмбэлнэ", LEAF);
 
         for (int i = 1; i < cur.length; i++) {
             for (int j = i; j > 0
@@ -105,12 +134,12 @@ public class SortTrace {
                 cur[j] = tmp;
 
                 Step s = step(n, cur, "Энгийн эрэмбэлэлт", false,
-                        "Солилцлоо: " + x + " ба " + y);
+                        "Солилцлоо: " + x + " ба " + y, LEAF);
                 s.hl = new int[]{cur[j], cur[j - 1]};
             }
         }
 
-        step(n, cur, "Дууссан", true, n.range() + " эрэмбэлэгдлээ");
+        step(n, cur, "Дууссан", true, n.range() + " эрэмбэлэгдлээ", DONE);
         return cur;
     }
 
@@ -118,9 +147,10 @@ public class SortTrace {
         n.input = ids.clone();
         int len = ids.length;
 
-        if (len == 1) {
+        if (len <= 1) {
             step(n, null, "Дууссан", true,
-                    n.range() + " нэг тоо тул эрэмбэлэх шаардлагагүй");
+                    "LEAF: " + n.range() + " нэг тоо тул эрэмбэлэх шаардлагагүй",
+                    LEAF);
             return ids;
         }
 
@@ -136,24 +166,30 @@ public class SortTrace {
         TNode rn = new TNode(n.left + m, n.right);
         ln.input = lIds.clone();
         rn.input = rIds.clone();
+        rn.forked = true;
         n.children.add(ln);
         n.children.add(rn);
 
-        Step split = step(n, null, "Хуваагдаж байна", false,
-                n.range() + "-г хоёр хэсэг болгов: " + ln.range() + " ба " + rn.range());
+        Step split = step(n, null, "FORK — хуваагдлаа", false,
+                "FORK: " + n.range() + "-г хоёр хуваав. " + rn.range()
+                        + "-г fork() хийж pool-ийн queue-д хийлээ (сул worker "
+                        + "хулгайлж авч болно); " + ln.range()
+                        + "-г энэ thread өөрөө compute() хийнэ", FORK);
         split.reveal.add(ln);
         split.reveal.add(rn);
 
         int[] l = merge(ln, lIds);
         int[] r = merge(rn, rIds);
 
-        // join: sorted halves come back to the parent
+        // JOIN: эрэмбэлэгдсэн хоёр хагас эцэг рүүгээ буцаж ирнэ.
         int[] joined = new int[len];
         System.arraycopy(l, 0, joined, 0, l.length);
         System.arraycopy(r, 0, joined, l.length, r.length);
 
-        step(n, joined, "Хоёр хагас ирлээ", false,
-                "Хоёр хагас эрэмбэлэгдээд " + n.range() + "-д буцаж ирлээ");
+        step(n, joined, "JOIN — хагасууд ирлээ", false,
+                "JOIN: " + n.range() + " нь join() дуудаж " + rn.range()
+                        + " дуусахыг хүлээв. Эрэмбэлэгдсэн хоёр хагас буцаж "
+                        + "ирлээ → одоо нэгтгэнэ (merge)", JOIN);
 
         int i = 0;
         int j = 0;
@@ -182,8 +218,10 @@ public class SortTrace {
             }
 
             Step s = step(n, order, "Нэгтгэж байна", false,
-                    values[a] + " ба " + values[b] + "-г харьцууллаа → "
-                            + (takeLeft ? values[a] : values[b]) + "-г авлаа");
+                    "MERGE: " + values[a] + " ба " + values[b]
+                            + "-г харьцууллаа → "
+                            + (takeLeft ? values[a] : values[b]) + "-г авлаа",
+                    MERGE);
             s.hl = new int[]{a, b};
         }
 
@@ -194,9 +232,10 @@ public class SortTrace {
             out[k++] = r[j++];
         }
 
-        step(n, out, "Дууссан", true, n.range() + " эрэмбэлэгдлээ");
+        step(n, out, "Дууссан", true, n.range() + " эрэмбэлэгдлээ", DONE);
         return out;
     }
+
     private int cmp(int idA, int idB) {
         return Integer.compare(values[idA], values[idB]);
     }
@@ -216,7 +255,8 @@ public class SortTrace {
         swap(cur, i, j);
 
         Step s = step(n, cur, "Pivot сонгож байна", false,
-                "Pivot сонгохын тулд " + a + " ба " + b + "-г солилцлоо");
+                "Pivot сонгохын тулд " + a + " ба " + b + "-г солилцлоо",
+                PARTITION);
         s.hl = new int[]{idI, idJ};
     }
 
@@ -224,9 +264,10 @@ public class SortTrace {
         n.input = ids.clone();
         int len = ids.length;
 
-        if (len == 1) {
+        if (len <= 1) {
             step(n, null, "Дууссан", true,
-                    n.range() + " нэг тоо тул эрэмбэлэх шаардлагагүй");
+                    "LEAF: " + n.range() + " нэг тоо тул эрэмбэлэх шаардлагагүй",
+                    LEAF);
             return ids;
         }
 
@@ -245,7 +286,7 @@ public class SortTrace {
                 sorted[i] = boxed[i];
             }
             step(n, sorted, "Arrays.sort", true,
-                    n.range() + " гүн хэтэрсэн тул Arrays.sort ашиглав");
+                    n.range() + " гүн хэтэрсэн тул Arrays.sort ашиглав", LEAF);
             return sorted;
         }
 
@@ -268,8 +309,9 @@ public class SortTrace {
         int pv = values[pivotId];
 
         Step first = step(n, null, "Pivot-оор хуваана", false,
-                n.range() + " Pivot = " + pv
-                        + " (эхний, дунд, сүүлийн 3 тооны голын утга)");
+                "PARTITION: " + n.range() + " Pivot = " + pv
+                        + " (эхний, дунд, сүүлийн 3 тооны голын утга)",
+                PARTITION);
         first.pivot = pivotId;
 
         int lt = 0;
@@ -301,7 +343,7 @@ public class SortTrace {
                 text = values[idI] + " = " + pv + " → голд үлдэнэ";
             }
 
-            Step s = step(n, cur, "Pivot-оор хуваана", false, text);
+            Step s = step(n, cur, "Pivot-оор хуваана", false, text, PARTITION);
             s.hl = hl;
             s.pivot = pivotId;
         }
@@ -309,7 +351,7 @@ public class SortTrace {
         Step placed = step(n, cur, "Pivot-оор хуваана", false,
                 "Хуваалт дууслаа: зүүн тал " + lt + " тоо, голд "
                         + (gt - lt + 1) + " тоо, баруун тал "
-                        + (len - 1 - gt) + " тоо");
+                        + (len - 1 - gt) + " тоо", PARTITION);
         placed.pivot = pivotId;
 
         TNode ln = null;
@@ -327,16 +369,25 @@ public class SortTrace {
             n.children.add(rn);
         }
 
-        if (ln != null || rn != null) {
-            Step split = step(n, null, "Хуваагдаж байна", false,
-                    "Pivot-ын зүүн, баруун талыг тусад нь эрэмбэлнэ");
+        boolean both = ln != null && rn != null;
+
+        if (both) {
+            rn.forked = true;
+            Step split = step(n, null, "FORK — хуваагдлаа", false,
+                    "FORK: " + rn.range() + "-г fork() хийж pool-ийн queue-д "
+                            + "хийлээ; " + ln.range()
+                            + "-г энэ thread өөрөө compute() хийнэ", FORK);
             split.pivot = pivotId;
-            if (ln != null) {
-                split.reveal.add(ln);
-            }
-            if (rn != null) {
-                split.reveal.add(rn);
-            }
+            split.reveal.add(ln);
+            split.reveal.add(rn);
+        } else if (ln != null || rn != null) {
+            TNode only = ln != null ? ln : rn;
+            Step split = step(n, null, "Нэг хэсэг үлдлээ", false,
+                    "COMPUTE: зөвхөн " + only.range() + " эрэмбэлэх шаардлагатай"
+                            + " тул fork хийхгүй, энэ thread дээр шууд "
+                            + "үргэлжлүүлнэ", COMPUTE);
+            split.pivot = pivotId;
+            split.reveal.add(only);
         }
 
         int[] res = cur.clone();
@@ -351,8 +402,15 @@ public class SortTrace {
             System.arraycopy(s, 0, res, gt + 1, s.length);
         }
 
-        step(n, res, "Дууссан", true,
-                n.range() + " эрэмбэлэгдлээ");
+        if (both) {
+            Step join = step(n, res, "JOIN — хэсгүүд ирлээ", false,
+                    "JOIN: " + n.range() + " нь join() дуудаж " + rn.range()
+                            + " дуусахыг хүлээв. Хоёр тал эрэмбэлэгдэж ирлээ "
+                            + "(Quick Sort-д нэгтгэх ажил шаардлагагүй)", JOIN);
+            join.pivot = pivotId;
+        }
+
+        step(n, res, "Дууссан", true, n.range() + " эрэмбэлэгдлээ", DONE);
         return res;
     }
 }

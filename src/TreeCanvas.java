@@ -29,6 +29,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 
 public class TreeCanvas extends VBox {
 
@@ -39,7 +40,7 @@ public class TreeCanvas extends VBox {
     private static final double BOX_H = HEADER_H + CELL_H + PAD;
     private static final double MIN_BOX_W = 110;
     private static final double GAP_X = 20;
-    private static final double GAP_Y = 52;
+    private static final double GAP_Y = 60;
     private static final double MARGIN = 24;
 
     private static final String BOX_IDLE =
@@ -55,6 +56,12 @@ public class TreeCanvas extends VBox {
             + "-fx-border-width: 1.5; -fx-border-radius: 8;"
             + "-fx-background-radius: 8;";
 
+    // Ирмэгийн (edge) төлөв: эцэг → хүүхэд
+    private static final int EDGE_COMPUTE = 1;  // эцэг thread өөрөө compute()
+    private static final int EDGE_FORK = 2;     // fork() хийгдсэн
+    private static final int EDGE_JOINED = 3;   // join()-оор буцаж ирсэн
+    private static final int EDGE_RETURNED = 4; // inline compute дуусч буцсан
+
     private static class View {
         final SortTrace.TNode node;
         final List<View> kids = new ArrayList<>();
@@ -62,8 +69,11 @@ public class TreeCanvas extends VBox {
         final Pane cellsPane = new Pane();
         final Label title = new Label();
         final Label status = new Label();
+        final Label badge = new Label();
         final Map<Integer, Label> cells = new HashMap<>();
         Line lineToParent;
+        Label edgeLabel;
+        int edgeState;
 
         double w;
         double x;
@@ -85,6 +95,8 @@ public class TreeCanvas extends VBox {
     }
 
     private SortTrace trace;
+    private Map<SortTrace.TNode, SortNode> real = new HashMap<>();
+    private Consumer<SortNode> onTaskChanged;
     private View rootView;
     private View current;     
     private final Map<SortTrace.TNode, View> views = new HashMap<>();
@@ -104,7 +116,9 @@ public class TreeCanvas extends VBox {
     private final Slider speedSlider = new Slider(1, 10, 3);
     private final Slider scrubber = new Slider(0, 1, 0);
     private final Label stepLabel = new Label("Алхам 0 / 0");
+    private final Label phaseChip = new Label("");
     private final Label logLabel = new Label("");
+    private final Label sideTask = new Label("");
 
     private final Label sideRange = new Label("—");
     private final Label sideStatus = new Label("");
@@ -141,9 +155,15 @@ public class TreeCanvas extends VBox {
         HBox.setHgrow(spacer, Priority.ALWAYS);
         stepLabel.getStyleClass().add("muted");
 
+        phaseChip.getStyleClass().add("phase-chip");
+        phaseChip.setVisible(false);
+        phaseChip.setTooltip(new Tooltip(
+                "Одоогийн алхмын төрөл: FORK / COMPUTE / PARTITION / LEAF /"
+                + " JOIN / MERGE / DONE"));
+
         HBox controls = new HBox(
                 8, restartBtn, backBtn, playBtn, fwdBtn,
-                speedBox, spacer, stepLabel
+                speedBox, spacer, phaseChip, stepLabel
         );
         controls.setAlignment(Pos.CENTER_LEFT);
 
@@ -164,8 +184,14 @@ public class TreeCanvas extends VBox {
         logLabel.setMaxWidth(Double.MAX_VALUE);
         logLabel.setMinHeight(54);
 
+        sideTask.getStyleClass().add("side-task");
+        sideTask.setWrapText(true);
+        sideTask.setMaxWidth(Double.MAX_VALUE);
+        sideTask.setVisible(false);
+        sideTask.setManaged(false);
+
         side = new VBox(8, sideTitle, sideRange, sideStatus,
-                sideCells, logLabel);
+                sideCells, logLabel, sideTask);
         side.getStyleClass().add("card");
         sideCells.prefWrapLengthProperty()
                 .bind(side.widthProperty().subtract(34));
@@ -183,12 +209,16 @@ public class TreeCanvas extends VBox {
         scroll.setPrefHeight(520);
         VBox.setVgrow(scroll, Priority.ALWAYS);
 
-        HBox legend = new HBox(
-                18,
+        FlowPane legend = new FlowPane(
+                16, 4,
                 legendItem("#e0b42f", "харьцуулж байгаа"),
                 legendItem("#8f74d6", "pivot"),
                 legendItem("#3b6fd4", "одоо ажиллаж байгаа"),
-                legendItem("#7fbf8a", "дууссан")
+                legendItem("#7fbf8a", "дууссан"),
+                edgeLegend("#8f74d6", true, "fork() — queue-д хийсэн"),
+                edgeLegend("#3b6fd4", false, "compute() — энэ thread"),
+                edgeLegend("#2e9e6b", false, "join() — буцаж ирсэн"),
+                badgeLegend()
         );
         legend.setAlignment(Pos.CENTER_LEFT);
 
@@ -241,6 +271,44 @@ public class TreeCanvas extends VBox {
         return side;
     }
 
+    /** Одоогийн алхмын бодит task өөрчлөгдөхөд дуудагдана (timeline-тай холбох). */
+    public void setOnTaskChanged(Consumer<SortNode> listener) {
+        this.onTaskChanged = listener;
+    }
+
+    private HBox edgeLegend(String color, boolean dashed, String text) {
+        Line l = new Line(0, 0, 22, 0);
+        l.setStroke(Color.web(color));
+        l.setStrokeWidth(2);
+        if (dashed) {
+            l.getStrokeDashArray().addAll(5.0, 4.0);
+        }
+        Label t = new Label(text);
+        t.getStyleClass().add("muted");
+        t.setStyle("-fx-font-size: 11px;");
+        HBox h = new HBox(6, l, t);
+        h.setAlignment(Pos.CENTER_LEFT);
+        return h;
+    }
+
+    private HBox badgeLegend() {
+        Label b = new Label("T3·W2");
+        b.setStyle(badgeStyle("W2"));
+        Label t = new Label("task дугаар · гүйцэтгэсэн worker thread");
+        t.getStyleClass().add("muted");
+        t.setStyle("-fx-font-size: 11px;");
+        HBox h = new HBox(6, b, t);
+        h.setAlignment(Pos.CENTER_LEFT);
+        return h;
+    }
+
+    private static String badgeStyle(String thread) {
+        return "-fx-background-color: " + ThreadTimeline.workerColor(thread)
+                + "; -fx-text-fill: white; -fx-font-size: 10px;"
+                + " -fx-font-weight: bold; -fx-padding: 1 5;"
+                + " -fx-background-radius: 8;";
+    }
+
     private HBox legendItem(String color, String text) {
         Circle dot = new Circle(5, Color.web(color));
         Label l = new Label(text);
@@ -255,6 +323,7 @@ public class TreeCanvas extends VBox {
         pause();
         stopAnims();
         trace = null;
+        real = new HashMap<>();
         rootView = null;
         current = null;
         views.clear();
@@ -269,6 +338,10 @@ public class TreeCanvas extends VBox {
         sideRange.setText("—");
         sideStatus.setText("");
         sideCells.getChildren().clear();
+        sideTask.setText("");
+        sideTask.setVisible(false);
+        sideTask.setManaged(false);
+        phaseChip.setVisible(false);
         setControlsDisabled(true);
     }
 
@@ -276,17 +349,28 @@ public class TreeCanvas extends VBox {
         clear();
         Label l = new Label(message);
         l.setStyle("-fx-text-fill: #6b7280; -fx-font-size: 14px;");
+        l.setWrapText(true);
+        l.setMaxWidth(560 - 2 * MARGIN);
         l.setLayoutX(MARGIN);
         l.setLayoutY(MARGIN);
         boxes.getChildren().add(l);
-        pane.setPrefSize(560, 90);
-        pane.setMinSize(560, 90);
-        pane.setMaxSize(560, 90);
+        pane.setPrefSize(560, 140);
+        pane.setMinSize(560, 140);
+        pane.setMaxSize(560, 140);
     }
 
     public void load(SortTrace t) {
+        load(t, null);
+    }
+
+    /**
+     * @param realTasks trace-ийн зангилаа бүрт харгалзах бодит SortNode
+     *                  (thread, хугацаа). null бол badge харуулахгүй.
+     */
+    public void load(SortTrace t, Map<SortTrace.TNode, SortNode> realTasks) {
         clear();
         trace = t;
+        real = realTasks == null ? new HashMap<>() : realTasks;
 
         rootView = create(t.root, null);
         double total = measure(rootView);
@@ -346,6 +430,16 @@ public class TreeCanvas extends VBox {
         v.box.getChildren().addAll(v.title, v.status, v.cellsPane);
         boxes.getChildren().add(v.box);
 
+        SortNode task = real.get(n);
+        if (task != null && task.getThread() != null) {
+            v.badge.setText(task.getLabel() + "·" + task.getThread());
+            v.badge.setStyle(badgeStyle(task.getThread()));
+            v.badge.setLayoutX(0);
+            v.badge.setLayoutY(BOX_H + 3);
+            v.badge.setTooltip(new Tooltip(taskInfo(task)));
+            v.box.getChildren().add(v.badge);
+        }
+
         for (SortTrace.TNode c : n.children) {
             View kid = create(c, v);
             v.kids.add(kid);
@@ -357,6 +451,10 @@ public class TreeCanvas extends VBox {
             v.lineToParent.setStrokeWidth(1.5);
             v.lineToParent.setStrokeLineCap(StrokeLineCap.ROUND);
             lines.getChildren().add(v.lineToParent);
+
+            v.edgeLabel = new Label();
+            v.edgeLabel.setMouseTransparent(true);
+            lines.getChildren().add(v.edgeLabel);
         }
         return v;
     }
@@ -390,6 +488,11 @@ public class TreeCanvas extends VBox {
             c.lineToParent.setStartY(v.y + BOX_H);
             c.lineToParent.setEndX(c.x + c.w / 2);
             c.lineToParent.setEndY(c.y);
+
+            double mx = (cx + c.x + c.w / 2) / 2;
+            double my = (v.y + BOX_H + c.y) / 2;
+            c.edgeLabel.setLayoutX(mx + (c.x + c.w / 2 < cx ? -62 : 6));
+            c.edgeLabel.setLayoutY(my - 8);
         }
     }
 
@@ -409,6 +512,7 @@ public class TreeCanvas extends VBox {
         v.done = false;
         v.active = false;
         v.statusText = v.revealed ? "Эхний өгөгдөл" : "";
+        v.edgeState = 0;
         v.box.setOpacity(1);
         render(v, false);
     }
@@ -443,7 +547,9 @@ public class TreeCanvas extends VBox {
         for (SortTrace.TNode r : s.reveal) {
             View c = views.get(r);
             c.revealed = true;
-            c.statusText = "Хүлээж байна";
+            c.edgeState = r.forked ? EDGE_FORK : EDGE_COMPUTE;
+            c.statusText = r.forked ? "fork хийгдсэн · queue-д хүлээж байна"
+                    : "compute · энэ thread дээр";
             render(c, false);
             if (animate) {
                 c.box.setOpacity(0);
@@ -467,14 +573,70 @@ public class TreeCanvas extends VBox {
             v.done = s.done;
             v.active = !s.done;
             current = v;
+
+            if (SortTrace.JOIN.equals(s.phase)) {
+                for (View k : v.kids) {
+                    k.edgeState = EDGE_JOINED;
+                    renderEdge(k);
+                }
+            } else if (SortTrace.DONE.equals(s.phase)) {
+                for (View k : v.kids) {
+                    if (k.edgeState != EDGE_JOINED) {
+                        k.edgeState = EDGE_RETURNED;
+                        renderEdge(k);
+                    }
+                }
+            }
             render(v, animate);
         }
+    }
+
+    private void renderEdge(View v) {
+        if (v.lineToParent == null) {
+            return;
+        }
+        Line l = v.lineToParent;
+        l.getStrokeDashArray().clear();
+        String text;
+        String color;
+        switch (v.edgeState) {
+            case EDGE_FORK -> {
+                color = "#8f74d6";
+                l.getStrokeDashArray().addAll(6.0, 5.0);
+                text = "fork()";
+            }
+            case EDGE_COMPUTE -> {
+                color = "#3b6fd4";
+                text = "compute()";
+            }
+            case EDGE_JOINED -> {
+                color = "#2e9e6b";
+                text = v.node.forked ? "↑ join()" : "↑ буцсан";
+            }
+            case EDGE_RETURNED -> {
+                color = "#2e9e6b";
+                text = "↑ буцсан";
+            }
+            default -> {
+                color = "#9aa0aa";
+                text = "";
+            }
+        }
+        l.setStroke(Color.web(color));
+        l.setStrokeWidth(v.edgeState == 0 ? 1.5 : 2.2);
+        v.edgeLabel.setText(text);
+        v.edgeLabel.setStyle("-fx-text-fill: " + color
+                + "; -fx-font-size: 11px; -fx-font-weight: bold;"
+                + " -fx-background-color: rgba(255,255,255,0.85);"
+                + " -fx-padding: 0 3; -fx-background-radius: 3;");
+        v.edgeLabel.setVisible(v.revealed && !text.isEmpty());
     }
 
     private void render(View v, boolean animate) {
         v.box.setVisible(v.revealed);
         if (v.lineToParent != null) {
             v.lineToParent.setVisible(v.revealed);
+            renderEdge(v);
         }
 
         v.status.setText(v.statusText);
@@ -589,6 +751,16 @@ public class TreeCanvas extends VBox {
         sideRange.setText(v.node.range());
         sideStatus.setText(v.statusText);
 
+        SortNode task = real.get(v.node);
+        if (task != null && task.getThread() != null) {
+            sideTask.setText(taskInfo(task));
+            sideTask.setVisible(true);
+            sideTask.setManaged(true);
+        }
+        if (onTaskChanged != null) {
+            onTaskChanged.accept(task);
+        }
+
         for (int id : v.order) {
             Label c = new Label(String.valueOf(trace.values[id]));
             c.setMinSize(46, 40);
@@ -689,8 +861,13 @@ public class TreeCanvas extends VBox {
         if (pos == 0) {
             logLabel.setText("Эхний массив: " + java.util.Arrays.toString(
                     trace.values) + ". «Тоглуулах» дарж эхлүүлнэ үү.");
+            phaseChip.setVisible(false);
         } else {
-            logLabel.setText(trace.steps.get(pos - 1).text);
+            SortTrace.Step s = trace.steps.get(pos - 1);
+            logLabel.setText(s.text);
+            phaseChip.setText(s.phase);
+            phaseChip.setStyle(phaseStyle(s.phase));
+            phaseChip.setVisible(!s.phase.isEmpty());
         }
 
         updatingSlider = true;
@@ -701,6 +878,45 @@ public class TreeCanvas extends VBox {
         fwdBtn.setDisable(pos >= n);
 
         refreshSide();
+    }
+
+    private static String phaseStyle(String phase) {
+        String bg = switch (phase) {
+            case SortTrace.FORK -> "#8f74d6";
+            case SortTrace.COMPUTE -> "#3b6fd4";
+            case SortTrace.JOIN -> "#2e9e6b";
+            case SortTrace.MERGE -> "#e07b39";
+            case SortTrace.LEAF -> "#2a9fb0";
+            case SortTrace.PARTITION -> "#b26a00";
+            default -> "#7fbf8a";
+        };
+        return "-fx-background-color: " + bg + "; -fx-text-fill: white;"
+                + " -fx-font-weight: bold; -fx-padding: 3 10;"
+                + " -fx-background-radius: 10;";
+    }
+
+    /** Бодит task-ийн thread ба хугацааны тайлбар. */
+    static String taskInfo(SortNode t) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("Бодит гүйцэтгэл: ").append(t.getLabel()).append(' ')
+                .append(t.getRange()).append(" → ").append(t.getThread())
+                .append(" thread\n");
+        sb.append(String.format("эхэлсэн +%.3f ms, дууссан +%.3f ms",
+                t.getStartNs() / 1e6, t.getEndNs() / 1e6));
+        if (t.getParent() == null) {
+            sb.append("\nroot task (pool.invoke)");
+        } else if (t.isForked()) {
+            sb.append(t.isStolen()
+                    ? "\nfork хийгдсэн → өөр worker хулгайлж (steal) авсан"
+                    : "\nfork хийгдсэн → эцэг thread өөрөө буцааж авсан");
+        } else {
+            sb.append("\ncompute() → эцэгтэйгээ нэг thread дээр");
+        }
+        if (!t.getChildren().isEmpty() && t.getJoinWaitNs() >= 0) {
+            sb.append(String.format("\njoin хүлээсэн: %.3f ms",
+                    (t.getJoinedNs() - t.getJoinWaitNs()) / 1e6));
+        }
+        return sb.toString();
     }
 
     private void setControlsDisabled(boolean disabled) {

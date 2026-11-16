@@ -1,5 +1,7 @@
 import javafx.application.Application;
+import javafx.concurrent.Task;
 import javafx.geometry.Insets;
+import javafx.geometry.Orientation;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
@@ -7,13 +9,17 @@ import javafx.scene.layout.*;
 import javafx.stage.Stage;
 
 import java.util.Arrays;
-import java.util.concurrent.ForkJoinPool;
+import java.util.IdentityHashMap;
+import java.util.Map;
+import java.util.Random;
 
 public class Main extends Application {
 
     private static final String DEFAULT_NUMBERS = "8, 3, 6, 1, 9, 2, 7, 4";
     private static final String DEFAULT_THRESHOLD = "2";
+    private static final String DEFAULT_DELAY = "20";
     private static final int MAX_SHOWN = 40;
+    private static final int CORES = Runtime.getRuntime().availableProcessors();
 
     private static final String[][] SAMPLES = {
             {"Номын жишээ",
@@ -29,19 +35,34 @@ public class Main extends Application {
             {"Бүгд адил", "5, 5, 5, 5, 5, 5, 5, 5", "2"},
             {"Давтагдсан тоотой", "4, 2, 4, 1, 2, 4, 1, 3, 3, 2", "2"},
             {"Сөрөг, 0 тоотой", "-5, 3, 0, -9, 8, -1, 0, 7", "2"},
+            {"Int-ийн хязгаар", "2147483647, 0, -2147483648, -1, 1", "1"},
             {"Нэг тоо", "42", "2"}
     };
 
     private TextField numbersField;
     private TextField thresholdField;
+    private TextField delayField;
+    private ComboBox<String> workersBox;
     private ToggleButton mergeToggle;
     private ToggleButton quickToggle;
+    private Button sortButton;
+    private ProgressIndicator progress;
+    private VBox inputCard;
 
     private Label originalLabel;
     private Label sortedLabel;
     private Label statsLabel;
     private Label statusLabel;
     private TreeCanvas treeCanvas;
+    private ThreadTimeline timeline;
+
+    private boolean running = false;
+
+    /** Background thread-ээс UI руу буцаах үр дүн. */
+    private record RunOutput(int[] original, int[] sorted, boolean mergeSort,
+                             int threshold, long delayMs,
+                             SortRunner.Result result, SortTrace trace) {
+    }
 
     @Override
     public void start(Stage stage) {
@@ -50,8 +71,8 @@ public class Main extends Application {
         title.getStyleClass().add("app-title");
 
         Label subtitle = new Label(
-                "Тоонуудыг хоёр хэсэг болгон хуваагаад, эрэмбэлээд, "
-                + "буцааж нэгтгэхийг мод хэлбэрээр харуулна");
+                "Массивыг fork-оор хувааж, worker thread-үүд зэрэг "
+                + "эрэмбэлээд, join-оор буцааж нэгтгэхийг харуулна");
         subtitle.getStyleClass().add("app-subtitle");
 
         VBox header = new VBox(2, title, subtitle);
@@ -66,6 +87,25 @@ public class Main extends Application {
         TextField sizeField = new TextField("16");
         sizeField.setPrefWidth(70);
         sizeField.setMaxWidth(70);
+
+        workersBox = new ComboBox<>();
+        workersBox.getItems().addAll(
+                "Auto (" + CORES + ")", "1", "2", "4", "8");
+        workersBox.getSelectionModel().select(0);
+        workersBox.setTooltip(new Tooltip(
+                "ForkJoinPool-ийн parallelism буюу worker thread-ийн тоо. "
+                + "1 сонговол бүх task нэг thread дээр ажиллана."));
+
+        delayField = new TextField(DEFAULT_DELAY);
+        delayField.setPrefWidth(70);
+        delayField.setMaxWidth(70);
+        delayField.setTooltip(new Tooltip(
+                "Leaf task бүрт зориуд нэмэх саатал (ms). Жижиг өгөгдөл дээр "
+                + "worker-ууд зэрэг ажиллахыг timeline дээр тод харуулна. "
+                + "0 = бодит хугацаа. " + SortTrace.MAX_SIZE
+                + "-аас олон тоонд автоматаар 0 болно."));
+        Label delayUnit = new Label("ms / leaf");
+        delayUnit.getStyleClass().add("muted");
 
         ToggleGroup group = new ToggleGroup();
         mergeToggle = new ToggleButton("Merge Sort");
@@ -94,21 +134,29 @@ public class Main extends Application {
         resetButton.setMaxWidth(Double.MAX_VALUE);
         HBox.setHgrow(resetButton, Priority.ALWAYS);
 
-        Button sortButton = new Button("Эрэмбэлэх");
+        sortButton = new Button("Эрэмбэлэх");
         sortButton.getStyleClass().add("btn-primary");
         sortButton.setMaxWidth(Double.MAX_VALUE);
         sortButton.setDefaultButton(true);
         HBox.setHgrow(sortButton, Priority.ALWAYS);
 
-        HBox buttonRow = new HBox(8, resetButton, sortButton);
+        progress = new ProgressIndicator();
+        progress.setPrefSize(22, 22);
+        progress.setVisible(false);
+        progress.setManaged(false);
 
-        VBox inputCard = new VBox(
+        HBox buttonRow = new HBox(8, resetButton, sortButton, progress);
+        buttonRow.setAlignment(Pos.CENTER_LEFT);
+
+        inputCard = new VBox(
                 8,
                 keyLabel("Тоонууд (таслалаар тусгаарлана)"),
                 numbersField,
                 spacer(2),
                 row(rowKey("Threshold"), thresholdField),
                 row(rowKey("Алгоритм"), mergeToggle, quickToggle),
+                row(rowKey("Worker thread"), workersBox),
+                row(rowKey("Leaf саатал"), delayField, delayUnit),
                 row(rowKey("Санамсаргүй тоо"), sizeField, generateButton),
                 row(rowKey("Жишээ"), samplesBox),
                 spacer(2),
@@ -138,6 +186,8 @@ public class Main extends Application {
         resultCard.getStyleClass().add("card");
 
         treeCanvas = new TreeCanvas();
+        timeline = new ThreadTimeline();
+        treeCanvas.setOnTaskChanged(timeline::highlight);
 
         VBox left = new VBox(12, inputCard, resultCard,
                 treeCanvas.getSidePanel());
@@ -151,11 +201,17 @@ public class Main extends Application {
         leftScroll.setPrefWidth(372);
         leftScroll.setMinWidth(372);
 
-        HBox body = new HBox(14, leftScroll, treeCanvas);
-        HBox.setHgrow(treeCanvas, Priority.ALWAYS);
+        SplitPane right = new SplitPane(treeCanvas, timeline);
+        right.setOrientation(Orientation.VERTICAL);
+        right.setDividerPositions(0.56);
+        right.getStyleClass().add("right-split");
+
+        HBox body = new HBox(14, leftScroll, right);
+        HBox.setHgrow(right, Priority.ALWAYS);
 
         Label footer = new Label(
-                "F.CSM302 Үйлдлийн систем · Бие даалт 1 · Fork-Join Sorting");
+                "F.CSM302 Үйлдлийн систем · Бие даалт 2 · II-4-7 · "
+                + "Fork-Join Sorting");
         footer.getStyleClass().add("footer");
 
         VBox root = new VBox(12, header, body, footer);
@@ -177,6 +233,8 @@ public class Main extends Application {
         resetButton.setOnAction(event -> {
             numbersField.setText(DEFAULT_NUMBERS);
             thresholdField.setText(DEFAULT_THRESHOLD);
+            delayField.setText(DEFAULT_DELAY);
+            workersBox.getSelectionModel().select(0);
             mergeToggle.setSelected(true);
             samplesBox.getSelectionModel().clearSelection();
             originalLabel.setText("—");
@@ -186,34 +244,23 @@ public class Main extends Application {
             treeCanvas.showMessage(
                     "Тоогоо оруулаад «Эрэмбэлэх» дарна уу. "
                     + "Мод энд гарна.");
+            timeline.clear("«Эрэмбэлэх» дарахад worker thread бүр аль "
+                    + "task-ийг хэзээ гүйцэтгэснийг энд харуулна.");
         });
 
         generateButton.setOnAction(event -> {
             try {
-                int size = Integer.parseInt(sizeField.getText().trim());
-
-                if (size < 1 || size > 10000) {
-                    throw new IllegalArgumentException(
-                            "Өгөгдлийн хэмжээ 1–10000 байх ёстой."
-                    );
-                }
-
-                java.util.Random random = new java.util.Random();
+                int size = InputParser.parseRandomSize(sizeField.getText());
+                Random random = new Random();
                 StringBuilder values = new StringBuilder();
-
                 for (int i = 0; i < size; i++) {
                     if (i > 0) {
                         values.append(", ");
                     }
-
                     values.append(random.nextInt(2001) - 1000);
                 }
-
                 numbersField.setText(values.toString());
                 setStatus(size + " санамсаргүй тоо үүсгэлээ.", 0);
-
-            } catch (NumberFormatException e) {
-                showError("Өгөгдлийн хэмжээг бүхэл тоогоор оруулна уу.");
             } catch (IllegalArgumentException e) {
                 showError(e.getMessage());
             }
@@ -222,12 +269,12 @@ public class Main extends Application {
         originalLabel.setText("—");
         sortedLabel.setText("—");
 
-        Scene scene = new Scene(root, 1280, 860);
+        Scene scene = new Scene(root, 1360, 900);
         Theme.apply(scene);
 
-        stage.setTitle("Fork-Join Sorting");
-        stage.setMinWidth(1050);
-        stage.setMinHeight(700);
+        stage.setTitle("Fork-Join Sorting — II-4-7");
+        stage.setMinWidth(1100);
+        stage.setMinHeight(720);
         stage.setScene(scene);
         stage.show();
     }
@@ -282,11 +329,12 @@ public class Main extends Application {
                 + ", … +" + (values.length - MAX_SHOWN) + " тоо]";
     }
 
-    private boolean isMergeSort() {
-        return mergeToggle.isSelected();
+    private int selectedWorkers() {
+        int idx = workersBox.getSelectionModel().getSelectedIndex();
+        return idx <= 0 ? 0 : Integer.parseInt(workersBox.getValue());
     }
 
-    private boolean sameTree(SortNode real, SortTrace.TNode traced) {
+    static boolean sameTree(SortNode real, SortTrace.TNode traced) {
         if (real.getLeft() != traced.left
                 || real.getRight() != traced.right
                 || real.getChildren().size() != traced.children.size()) {
@@ -300,133 +348,164 @@ public class Main extends Application {
         return true;
     }
 
+    /** Ижил бүтэцтэй хоёр модны зангилааг хооронд нь холбоно. */
+    private static void link(SortTrace.TNode t, SortNode r,
+                             Map<SortTrace.TNode, SortNode> out) {
+        out.put(t, r);
+        for (int i = 0; i < t.children.size(); i++) {
+            link(t.children.get(i), r.getChildren().get(i), out);
+        }
+    }
+
+    /**
+     * Оролтыг UI thread дээр шалгаад, эрэмбэлэлтийг background thread дээр
+     * ажиллуулна (BD2, шүүмж A1). Ажиллаж байх хооронд товчлуурууд
+     * идэвхгүй болж давхар эхлүүлэхээс хамгаална.
+     */
     private void sortNumbers() {
+        if (running) {
+            return;
+        }
+
+        final Integer[] numbers;
+        final int threshold;
+        final int delayInput;
         try {
-            String input = numbersField.getText().trim();
-
-            if (input.isEmpty()) {
-                throw new IllegalArgumentException(
-                        "Тоонуудын жагсаалт хоосон байна."
-                );
-            }
-
-            int threshold = Integer.parseInt(
-                    thresholdField.getText().trim()
-            );
-
-            if (threshold < 1) {
-                throw new IllegalArgumentException(
-                        "Threshold нь 1 буюу түүнээс их байх ёстой."
-                );
-            }
-
-            String[] parts = input.split(",", -1);
-            Integer[] numbers = new Integer[parts.length];
-
-            for (int i = 0; i < parts.length; i++) {
-                if (parts[i].trim().isEmpty()) {
-                    throw new IllegalArgumentException(
-                            "Тоонуудын хооронд илүү таслал байна."
-                    );
-                }
-
-                numbers[i] = Integer.parseInt(parts[i].trim());
-            }
-
-            int[] original = new int[numbers.length];
-            for (int i = 0; i < numbers.length; i++) {
-                original[i] = numbers[i];
-            }
-
-            boolean mergeSort = isMergeSort();
-            String algoName = mergeSort ? "Merge Sort" : "Quick Sort";
-
-            ForkJoinPool pool = new ForkJoinPool();
-            int parallelism = pool.getParallelism();
-            SortNode rootNode;
-            long startTime = System.nanoTime();
-
-            try {
-                if (mergeSort) {
-                    MergeSortTask<Integer> task = new MergeSortTask<>(
-                            numbers, 0, numbers.length - 1, threshold);
-                    pool.invoke(task);
-                    rootNode = task.getRootNode();
-
-                } else {
-                    QuickSortTask<Integer> task = new QuickSortTask<>(
-                            numbers, 0, numbers.length - 1, threshold);
-                    pool.invoke(task);
-                    rootNode = task.getRootNode();
-                }
-            } finally {
-                pool.shutdown();
-            }
-
-            double elapsedMs =
-                    (System.nanoTime() - startTime) / 1_000_000.0;
-
-            int[] sorted = new int[numbers.length];
-            for (int i = 0; i < numbers.length; i++) {
-                sorted[i] = numbers[i];
-            }
-
-            originalLabel.setText(format(original));
-            sortedLabel.setText(format(sorted));
-
-            statsLabel.setText(String.format(
-                    "%s · %.3f ms · %d тоо · threshold %d · "
-                    + "%d зангилаа · гүн %d · parallelism %d",
-                    algoName,
-                    elapsedMs,
-                    sorted.length,
-                    threshold,
-                    countNodes(rootNode),
-                    calculateDepth(rootNode),
-                    parallelism
-            ));
-
-            if (original.length <= SortTrace.MAX_SIZE) {
-                SortTrace trace = SortTrace.build(
-                        original, threshold, mergeSort
-                );
-
-                boolean sameResult =
-                        Arrays.equals(trace.sortedValues(), sorted);
-                boolean sameShape = sameTree(rootNode, trace.root);
-
-                if (sameResult && sameShape) {
-                    setStatus("Амжилттай эрэмбэллээ. Мод нь бодит "
-                            + "fork-join-той яг таарч байна.", 1);
-                } else {
-                    setStatus("Анхаар: мод бодит fork-join-той таараагүй "
-                            + "байна.", 2);
-                }
-
-                treeCanvas.load(trace);
-
-            } else {
-                setStatus("Амжилттай эрэмбэллээ.", 1);
-                treeCanvas.showMessage(
-                        "Дүрслэл зөвхөн " + SortTrace.MAX_SIZE
-                        + " хүртэл тоотой үед ажиллана (одоо "
-                        + original.length + " тоо байна). "
-                );
-            }
-
-        } catch (NumberFormatException e) {
-            showError(
-                    "Тоонууд болон threshold-д бүхэл тоо оруулна уу "
-                    + "(−2147483648 … 2147483647)."
-            );
-
+            numbers = InputParser.parseNumbers(numbersField.getText());
+            threshold = InputParser.parseThreshold(thresholdField.getText());
+            delayInput = InputParser.parseLeafDelay(delayField.getText());
         } catch (IllegalArgumentException e) {
             showError(e.getMessage());
-
-        } catch (StackOverflowError e) {
-            showError("Рекурсийн гүн хэт их болсон тул эрэмбэлж чадсангүй. "
-                    + "Threshold-ийг ихэсгэх эсвэл өгөгдлийг багасгана уу.");
+            return;
         }
+
+        final boolean mergeSort = mergeToggle.isSelected();
+        final int workers = selectedWorkers();
+        final boolean visualize = numbers.length <= SortTrace.MAX_SIZE;
+        // Том өгөгдөл дээр зориудын саатал нэмбэл хэт удаан болох тул 0.
+        final long delayMs = visualize ? delayInput : 0;
+
+        final int[] original = new int[numbers.length];
+        for (int i = 0; i < numbers.length; i++) {
+            original[i] = numbers[i];
+        }
+
+        Task<RunOutput> job = new Task<>() {
+            @Override
+            protected RunOutput call() {
+                SortRunner.Result result = SortRunner.run(
+                        numbers, threshold, mergeSort, workers, delayMs);
+
+                int[] sorted = new int[numbers.length];
+                for (int i = 0; i < numbers.length; i++) {
+                    sorted[i] = numbers[i];
+                }
+
+                SortTrace trace = visualize
+                        ? SortTrace.build(original, threshold, mergeSort)
+                        : null;
+                return new RunOutput(original, sorted, mergeSort, threshold,
+                        delayMs, result, trace);
+            }
+        };
+
+        job.setOnSucceeded(e -> {
+            setRunning(false);
+            show(job.getValue());
+        });
+        job.setOnFailed(e -> {
+            setRunning(false);
+            Throwable ex = job.getException();
+            if (ex instanceof StackOverflowError) {
+                showError("Рекурсийн гүн хэт их болсон тул эрэмбэлж "
+                        + "чадсангүй. Threshold-ийг ихэсгэнэ үү.");
+            } else if (ex instanceof OutOfMemoryError) {
+                showError("Санах ой хүрэлцсэнгүй. Өгөгдлийг багасгана уу.");
+            } else {
+                showError("Эрэмбэлэх үед алдаа гарлаа: " + ex);
+            }
+            setStatus("Алдаа гарлаа.", 2);
+        });
+
+        setRunning(true);
+        setStatus("Эрэмбэлж байна… (background thread дээр, UI хариу "
+                + "өгсөөр байна)", 0);
+
+        Thread runner = new Thread(job, "sort-runner");
+        runner.setDaemon(true);
+        runner.start();
+    }
+
+    private void setRunning(boolean on) {
+        running = on;
+        inputCard.setDisable(on);
+        sortButton.setText(on ? "Эрэмбэлж байна…" : "Эрэмбэлэх");
+        progress.setVisible(on);
+        progress.setManaged(on);
+        // inputCard идэвхгүй үед progress харагдсаар байлгах
+        progress.setDisable(false);
+    }
+
+    private void show(RunOutput out) {
+        SortRunner.Result r = out.result();
+        String algoName = out.mergeSort() ? "Merge Sort" : "Quick Sort";
+
+        originalLabel.setText(format(out.original()));
+        sortedLabel.setText(format(out.sorted()));
+
+        statsLabel.setText(String.format(
+                "%s · %.3f ms%s · %d тоо · threshold %d · "
+                + "%d task · гүн %d · parallelism %d · ашигласан worker %d · "
+                + "steal %d",
+                algoName,
+                r.elapsedMs(),
+                out.delayMs() > 0
+                        ? " (leaf тус бүр +" + out.delayMs() + " ms саатал)"
+                        : "",
+                out.sorted().length,
+                out.threshold(),
+                r.nodes(),
+                r.depth(),
+                r.parallelism(),
+                r.workersUsed(),
+                r.steals()
+        ));
+
+        timeline.load(r);
+
+        if (out.trace() == null) {
+            setStatus("Амжилттай эрэмбэллээ. Бодит thread-үүдийн "
+                    + "гүйцэтгэлийг доорх timeline-аас харна уу.", 1);
+            treeCanvas.showMessage(
+                    "Модны алхамчилсан дүрслэл зөвхөн " + SortTrace.MAX_SIZE
+                    + " хүртэл тоотой үед ажиллана (одоо "
+                    + out.original().length + " тоо байна). Бодит "
+                    + "worker thread-үүдийн гүйцэтгэл доорх timeline дээр "
+                    + "харагдана.");
+            return;
+        }
+
+        SortTrace trace = out.trace();
+        boolean sameResult = Arrays.equals(trace.sortedValues(), out.sorted());
+        boolean sameShape = sameTree(r.root(), trace.root);
+
+        Map<SortTrace.TNode, SortNode> map = new IdentityHashMap<>();
+        if (sameShape) {
+            link(trace.root, r.root(), map);
+        }
+
+        if (sameResult && sameShape) {
+            setStatus("Амжилттай эрэмбэллээ. Эцсийн үр дүн ба модны бүтэц "
+                    + "бодит fork-join task-уудтай таарч байна. Модны "
+                    + "алхамчилсан анимаци нь дарааллыг тайлбарлах "
+                    + "зориулалттай; бодит thread, хугацааг доорх timeline "
+                    + "болон зангилааны T·W тэмдэг харуулна.", 1);
+        } else {
+            setStatus("Анхаар: тайлбарын мод бодит fork-join task-уудтай "
+                    + "таараагүй байна.", 2);
+        }
+
+        treeCanvas.load(trace, map);
     }
 
     private void showError(String message) {
@@ -436,29 +515,6 @@ public class Main extends Application {
         alert.setHeaderText("Оролтыг шалгана уу");
         alert.setContentText(message);
         alert.showAndWait();
-    }
-
-    private int countNodes(SortNode node) {
-        int count = 1;
-
-        for (SortNode child : node.getChildren()) {
-            count += countNodes(child);
-        }
-
-        return count;
-    }
-
-    private int calculateDepth(SortNode node) {
-        int maxChildDepth = 0;
-
-        for (SortNode child : node.getChildren()) {
-            maxChildDepth = Math.max(
-                    maxChildDepth,
-                    calculateDepth(child)
-            );
-        }
-
-        return 1 + maxChildDepth;
     }
 
     public static void main(String[] args) {

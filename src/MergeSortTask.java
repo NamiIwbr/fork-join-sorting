@@ -6,6 +6,11 @@ import java.util.concurrent.RecursiveAction;
  * Fork-join Merge Sort. Elements must implement Comparable.
  * The list is divided into two (almost) equal halves; when a sub-list is
  * not longer than the threshold, insertion sort is applied directly.
+ *
+ * BD2: invokeAll()-ийн оронд сурах бичгийн загвар болох
+ *   second.fork();  first.compute();  second.join();
+ * гэсэн тодорхой fork / join цэгүүдийг ашиглаж, цэг бүрийг ExecutionLog-д
+ * thread-ийн нэр, хугацаатай нь бүртгэнэ.
  */
 public class MergeSortTask<T extends Comparable<T>> extends RecursiveAction {
 
@@ -14,23 +19,30 @@ public class MergeSortTask<T extends Comparable<T>> extends RecursiveAction {
     private final int right;
     private final int threshold;
     private final SortNode node;
+    private final ExecutionLog log;
 
     public MergeSortTask(T[] array, int left, int right, int threshold) {
-        this(checked(array, left, right, threshold),
-                left, right, threshold, new SortNode(left, right));
+        this(array, left, right, threshold, new ExecutionLog());
     }
 
-    private MergeSortTask(
-            T[] array, int left, int right, int threshold, SortNode node) {
+    public MergeSortTask(T[] array, int left, int right, int threshold,
+                         ExecutionLog log) {
+        this(checked(array, left, right, threshold),
+                left, right, threshold, new SortNode(left, right),
+                Objects.requireNonNull(log, "log"));
+    }
+
+    private MergeSortTask(T[] array, int left, int right, int threshold,
+                          SortNode node, ExecutionLog log) {
         this.array = array;
         this.left = left;
         this.right = right;
         this.threshold = threshold;
         this.node = node;
+        this.log = log;
     }
 
-    private static <E> E[] checked(
-            E[] array, int left, int right, int threshold) {
+    static <E> E[] checked(E[] array, int left, int right, int threshold) {
         Objects.requireNonNull(array, "array");
         if (threshold < 1) {
             throw new IllegalArgumentException("threshold must be >= 1");
@@ -45,26 +57,29 @@ public class MergeSortTask<T extends Comparable<T>> extends RecursiveAction {
         return node;
     }
 
+    public ExecutionLog getLog() {
+        return log;
+    }
+
     @Override
     protected void compute() {
+        node.begin(log);
         node.setInputValues(
-                Arrays.toString(Arrays.copyOfRange(array, left, right + 1)));
+                SortNode.describe(array, left, right));
         node.setStatus("Боловсруулж байна");
-
-        if (left >= right) {
-            node.setSortedValues(node.getInputValues());
-            node.setStatus("Дууссан");
-            return;
-        }
 
         int length = right - left + 1;
 
-        if (length <= threshold) {
+        // Base case: 0/1 элемент эсвэл threshold-оос жижиг → insertion sort.
+        if (length <= 1 || length <= threshold) {
             insertionSort();
+            log.simulateWork();
+            node.markLeaf(log, false);
             node.setSortedValues(
-                    Arrays.toString(
-                            Arrays.copyOfRange(array, left, right + 1)));
-            node.setStatus("Энгийн эрэмбэлэлтээр дууссан");
+                    SortNode.describe(array, left, right));
+            node.setStatus(length <= 1 ? "Дууссан"
+                    : "Энгийн эрэмбэлэлтээр дууссан");
+            node.finish(log);
             return;
         }
 
@@ -75,20 +90,34 @@ public class MergeSortTask<T extends Comparable<T>> extends RecursiveAction {
         node.addChild(leftNode);
         node.addChild(rightNode);
 
-        MergeSortTask<T> first =
-                new MergeSortTask<>(array, left, middle, threshold, leftNode);
-        MergeSortTask<T> second =
-                new MergeSortTask<>(array, middle + 1, right, threshold,
-                        rightNode);
+        MergeSortTask<T> first = new MergeSortTask<>(
+                array, left, middle, threshold, leftNode, log);
+        MergeSortTask<T> second = new MergeSortTask<>(
+                array, middle + 1, right, threshold, rightNode, log);
 
-        invokeAll(first, second);
+        // FORK: баруун хагасыг энэ worker-ийн deque-д хийнэ. Сул worker
+        // байвал түүнийг хулгайлж (work stealing) зэрэг ажиллуулна.
+        rightNode.setForked(true);
+        node.markFork(log, rightNode);
+        second.fork();
+
+        // Зүүн хагасыг энэ thread өөрөө шууд гүйцэтгэнэ.
+        node.markInline(log, leftNode);
+        first.compute();
+
+        // JOIN: баруун хагас дуустал хүлээнэ (хулгайлагдаагүй бол
+        // энэ thread өөрөө буцааж аваад ажиллуулна).
+        node.markJoinWait(log, rightNode);
+        second.join();
+        node.markJoined(log, rightNode);
 
         node.setStatus("Нэгтгэж байна");
         merge(middle);
 
         node.setSortedValues(
-                Arrays.toString(Arrays.copyOfRange(array, left, right + 1)));
+                SortNode.describe(array, left, right));
         node.setStatus("Нэгтгэл дууссан");
+        node.finish(log);
     }
 
     private void insertionSort() {

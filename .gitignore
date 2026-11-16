@@ -34,3 +34,6 @@ target/
 .vscode/
 .idea/
 *.iml
+# BD2: course-provided PDFs and personal working files stay out of the repo
+/*.pdf
+/.github/modernize/

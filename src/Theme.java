@@ -142,6 +142,38 @@ public final class Theme {
             -fx-text-fill: #5a4a10;
         }
         .side-range { -fx-font-size: 20px; -fx-font-weight: bold; }
+        .side-task {
+            -fx-background-color: #f3f0fc;
+            -fx-border-color: #d6cdf3;
+            -fx-background-radius: 4;
+            -fx-border-radius: 4;
+            -fx-padding: 8 10;
+            -fx-text-fill: #3d2f73;
+            -fx-font-size: 12px;
+        }
+        .phase-chip { -fx-font-size: 12px; }
+
+        /* ---------- thread timeline ---------- */
+        .right-split { -fx-background-color: transparent; -fx-padding: 0; }
+        .right-split > .split-pane-divider { -fx-background-color: transparent; -fx-padding: 0 0 6 0; }
+        .event-list .list-cell {
+            -fx-font-family: "Menlo", "Consolas", "Courier New", monospace;
+            -fx-font-size: 11px;
+            -fx-text-fill: #2b2f36;
+            -fx-padding: 2 6;
+        }
+        .tab-pane > .tab-header-area > .headers-region > .tab {
+            -fx-background-color: #eceef2;
+            -fx-background-radius: 4 4 0 0;
+            -fx-padding: 3 10;
+        }
+        .tab-pane > .tab-header-area > .headers-region > .tab:selected {
+            -fx-background-color: -accent;
+        }
+        .tab-pane > .tab-header-area > .headers-region > .tab:selected .tab-label {
+            -fx-text-fill: white;
+        }
+        .tab-pane > .tab-header-area > .tab-header-background { -fx-background-color: transparent; }
 
         /* ---------- tree area ---------- */
         .scroll-pane { -fx-background-color: transparent; }

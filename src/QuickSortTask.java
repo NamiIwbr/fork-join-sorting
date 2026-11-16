@@ -2,6 +2,14 @@ import java.util.Arrays;
 import java.util.Objects;
 import java.util.concurrent.RecursiveAction;
 
+/**
+ * Fork-join Quick Sort: median-of-three pivot, three-way partition,
+ * threshold-оос жижиг хэсэгт insertion sort, рекурсийн гүний хамгаалалт.
+ *
+ * BD2: хоёр дэд хэсэгтэй үед second.fork(); first.compute(); second.join();
+ * ганц дэд хэсэгтэй үед fork хийлгүйгээр энэ thread дээр шууд үргэлжлүүлнэ.
+ * Fork / join цэг бүр ExecutionLog-д бүртгэгдэнэ.
+ */
 public class QuickSortTask<T extends Comparable<T>> extends RecursiveAction {
 
     private final T[] array;
@@ -11,15 +19,23 @@ public class QuickSortTask<T extends Comparable<T>> extends RecursiveAction {
     private final SortNode node;
     private final int depth;
     private final int maxDepth;
+    private final ExecutionLog log;
 
     public QuickSortTask(T[] array, int left, int right, int threshold) {
-        this(checked(array, left, right, threshold), left, right, threshold,
-                new SortNode(left, right), 0, depthLimit(right - left + 1));
+        this(array, left, right, threshold, new ExecutionLog());
+    }
+
+    public QuickSortTask(T[] array, int left, int right, int threshold,
+                         ExecutionLog log) {
+        this(MergeSortTask.checked(array, left, right, threshold),
+                left, right, threshold, new SortNode(left, right), 0,
+                depthLimit(right - left + 1),
+                Objects.requireNonNull(log, "log"));
     }
 
     private QuickSortTask(
             T[] array, int left, int right, int threshold,
-            SortNode node, int depth, int maxDepth) {
+            SortNode node, int depth, int maxDepth, ExecutionLog log) {
         this.array = array;
         this.left = left;
         this.right = right;
@@ -27,6 +43,7 @@ public class QuickSortTask<T extends Comparable<T>> extends RecursiveAction {
         this.node = node;
         this.depth = depth;
         this.maxDepth = maxDepth;
+        this.log = log;
     }
 
     /** Maximum recursion depth before the fallback sort is used. */
@@ -34,86 +51,101 @@ public class QuickSortTask<T extends Comparable<T>> extends RecursiveAction {
         return 2 * (32 - Integer.numberOfLeadingZeros(Math.max(1, n))) + 4;
     }
 
-    private static <E> E[] checked(
-            E[] array, int left, int right, int threshold) {
-        Objects.requireNonNull(array, "array");
-        if (threshold < 1) {
-            throw new IllegalArgumentException("threshold must be >= 1");
-        }
-        if (left < 0 || right >= array.length || left > right + 1) {
-            throw new IllegalArgumentException("invalid range");
-        }
-        return array;
-    }
-
     public SortNode getRootNode() {
         return node;
     }
 
+    public ExecutionLog getLog() {
+        return log;
+    }
+
     @Override
     protected void compute() {
+        node.begin(log);
         node.setInputValues(
-                Arrays.toString(Arrays.copyOfRange(array, left, right + 1)));
+                SortNode.describe(array, left, right));
         node.setStatus("Боловсруулж байна");
 
-        if (left >= right) {
-            node.setSortedValues(node.getInputValues());
-            node.setStatus("Дууссан");
-            return;
-        }
+        int length = right - left + 1;
 
-        if (right - left + 1 <= threshold) {
+        if (length <= 1 || length <= threshold) {
             insertionSort();
+            log.simulateWork();
+            node.markLeaf(log, false);
             node.setSortedValues(
-                    Arrays.toString(
-                            Arrays.copyOfRange(array, left, right + 1)));
-            node.setStatus("Энгийн эрэмбэлэлтээр дууссан");
+                    SortNode.describe(array, left, right));
+            node.setStatus(length <= 1 ? "Дууссан"
+                    : "Энгийн эрэмбэлэлтээр дууссан");
+            node.finish(log);
             return;
         }
 
         if (depth > maxDepth) {
             Arrays.sort(array, left, right + 1);
+            log.simulateWork();
+            node.markLeaf(log, true);
             node.setSortedValues(
-                    Arrays.toString(
-                            Arrays.copyOfRange(array, left, right + 1)));
+                    SortNode.describe(array, left, right));
             node.setStatus("Гүн хэтэрсэн — Arrays.sort ашиглав");
+            node.finish(log);
             return;
         }
 
         int[] bounds = partition();
-        int lt = bounds[0];  
-        int gt = bounds[1];   // [lt, gt]      == pivot, [gt+1, right] > pivot
+        int lt = bounds[0];   // [left, lt-1] < pivot
+        int gt = bounds[1];   // [lt, gt] == pivot, [gt+1, right] > pivot
 
         QuickSortTask<T> first = null;
         QuickSortTask<T> second = null;
+        SortNode leftNode = null;
+        SortNode rightNode = null;
 
         if (lt - left >= 2) {
-            SortNode leftNode = new SortNode(left, lt - 1);
+            leftNode = new SortNode(left, lt - 1);
             node.addChild(leftNode);
             first = new QuickSortTask<>(array, left, lt - 1, threshold,
-                    leftNode, depth + 1, maxDepth);
+                    leftNode, depth + 1, maxDepth, log);
         }
 
         if (right - gt >= 2) {
-            SortNode rightNode = new SortNode(gt + 1, right);
+            rightNode = new SortNode(gt + 1, right);
             node.addChild(rightNode);
             second = new QuickSortTask<>(array, gt + 1, right, threshold,
-                    rightNode, depth + 1, maxDepth);
+                    rightNode, depth + 1, maxDepth, log);
         }
 
         node.setStatus("Дэд даалгавруудыг ажиллуулж байна");
 
         if (first != null && second != null) {
-            invokeAll(first, second);
-        } else if (first != null) {
+            // FORK баруун хэсэг → queue; зүүн хэсгийг энэ thread хийнэ.
+            rightNode.setForked(true);
+            node.markFork(log, rightNode);
+            second.fork();
+
+            node.markInline(log, leftNode);
             first.compute();
-        } else if (second != null) {
-            second.compute();
+
+            // JOIN: баруун хэсэг дуустал хүлээнэ.
+            node.markJoinWait(log, rightNode);
+            second.join();
+            node.markJoined(log, rightNode);
+
+        } else if (first != null || second != null) {
+            // Ганц хэсэг үлдсэн → fork хийх шаардлагагүй.
+            QuickSortTask<T> only = first != null ? first : second;
+            node.markInline(log, first != null ? leftNode : rightNode);
+            only.compute();
+            node.markInlineReturned(log);
+        } else {
+            // Бүх элемент pivot-той тэнцүү эсвэл хоёр тал ≤ 1 элементтэй.
+            node.markInline(log, null);
+            node.markInlineReturned(log);
         }
 
         node.setSortedValues(
-                Arrays.toString(Arrays.copyOfRange(array, left, right + 1)));
+                SortNode.describe(array, left, right));
         node.setStatus("Эрэмбэлэлт дууссан");
+        node.finish(log);
     }
 
     /** Median-of-three pivot + three-way partition. Returns {lt, gt}. */
