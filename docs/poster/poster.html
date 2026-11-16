@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="mn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>II-4-7 Fork-Join Sorting Poster</title>
+<!-- Хэвлэх: Chrome-оор нээж Ctrl/Cmd+P → Destination: Save as PDF, Paper: A3, Layout: Landscape,
+     Margins: None, Background graphics: ON → II-4-7_Poster.pdf -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+  :root {
+    --navy: #1f3a68;
+    --fork: #8f74d6;
+    --join: #2e9e6b;
+    --ink: #1f2430;
+    --muted: #5b6372;
+    --line: #dfe3ea;
+    --bg: #ffffff;
+    --panel: #f5f7fb;
+  }
+  @page { size: A3 landscape; margin: 0; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink);
+    font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif; }
+  .poster { width: 420mm; height: 297mm; padding: 11mm 13mm; display: flex; flex-direction: column; gap: 6mm;
+    overflow: hidden; }
+  header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 1.2mm solid var(--navy);
+    padding-bottom: 4mm; }
+  header h1 { margin: 0; font-size: 42pt; color: var(--navy); letter-spacing: -0.5pt; }
+  header h1 span { color: var(--fork); }
+  header .sub { font-size: 14pt; color: var(--muted); margin-top: 1.5mm; }
+  header .meta { text-align: right; font-size: 10pt; line-height: 1.45; color: var(--muted); max-width: 150mm; }
+  header .meta b { color: var(--ink); font-size: 16pt; }
+  .grid { flex: 1; display: grid; grid-template-columns: 1.08fr 1.47fr 1.05fr; gap: 6mm; min-height: 0; }
+  .col { display: flex; flex-direction: column; gap: 4mm; min-height: 0; }
+  section { background: var(--panel); border-radius: 3mm; padding: 3.8mm 4.5mm; }
+  h2 { margin: 0 0 2.5mm; font-size: 16pt; color: var(--navy); }
+  p, li { font-size: 10.5pt; line-height: 1.38; margin: 0; }
+  ul { margin: 0; padding-left: 5mm; }
+  li + li { margin-top: 1.2mm; }
+  .tag { display: inline-block; padding: 0 2mm; border-radius: 2mm; color: #fff; font-weight: 700; font-size: 10pt; }
+  .t-fork { background: var(--fork); } .t-join { background: var(--join); } .t-nav { background: var(--navy); }
+  .flow { display: flex; align-items: center; gap: 2mm; flex-wrap: wrap; margin-top: 2mm; font-size: 10.5pt; }
+  .flow div { background: #fff; border: 0.4mm solid var(--line); border-radius: 2mm; padding: 1.5mm 2.5mm; }
+  .flow .arr { border: none; background: none; padding: 0; color: var(--muted); }
+  figure { margin: 0; background: #fff; border: 0.4mm solid var(--line); border-radius: 3mm; padding: 2.5mm; }
+  figure img { width: 100%; display: block; border-radius: 1.5mm; }
+  figcaption { font-size: 10.5pt; color: var(--muted); margin-top: 2mm; line-height: 1.35; }
+  figcaption b { color: var(--ink); }
+  table { border-collapse: collapse; width: 100%; font-size: 11pt; }
+  th, td { padding: 1.4mm 2mm; border-bottom: 0.3mm solid var(--line); text-align: right; }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--muted); font-weight: 600; }
+  .big { font-size: 21pt; font-weight: 800; color: var(--navy); line-height: 1; white-space: nowrap; }
+  .kpis { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 3mm; }
+  .kpi { background: #fff; border-radius: 2mm; padding: 2.5mm; border: 0.4mm solid var(--line); }
+  .kpi small { display: block; font-size: 9.5pt; color: var(--muted); margin-top: 1mm; line-height: 1.3; }
+  .qr { display: flex; gap: 4mm; align-items: center; }
+  #qrcode { background: #fff; padding: 2mm; border-radius: 2mm; border: 0.4mm solid var(--line); }
+  #qrcode img, #qrcode canvas { display: block; width: 30mm !important; height: 30mm !important; }
+  .end { display: grid; grid-template-columns: 1fr auto; gap: 4mm; align-items: start; }
+  .url { font-size: 10.5pt; word-break: break-all; }
+  .small { font-size: 9.5pt; color: var(--muted); }
+  @media screen { body { background: #e8ebf0; } .poster { margin: 10mm auto; background: #fff;
+    box-shadow: 0 2mm 8mm rgba(0,0,0,.15); } }
+</style>
+</head>
+<body>
+<div class="poster">
+  <header>
+    <div>
+      <h1>Fork-Join Sorting <span>• Final</span></h1>
+      <div class="sub">Merge Sort ба Quick Sort-ийг ForkJoinPool дээр зэрэгцээ эрэмбэлж, fork, join ба worker thread-ийг харуулна · Java 23 · JavaFX 23 · JUnit 5</div>
+    </div>
+    <div class="meta">
+      <b>II-4-7</b> · F.CSM302 Үйлдлийн систем · БД2<br>
+      Б. Намуун · О. Түвшин · Э. Тайванбаяр · П. Мөнхжаргал · Ц. Мөнхжин · Д. Дашбалбар<br>
+      Багш Г. Ганбат · ШУТИС МХТС · 2026
+    </div>
+  </header>
+
+  <div class="grid">
+    <!-- Багана 1 -->
+    <div class="col">
+      <section>
+        <h2>Асуудал</h2>
+        <p>Fork-Join загварт эцэг task ажлаа хоёр хувааж
+          <span class="tag t-fork">fork</span>, дэд task-ууд worker thread-үүд дээр зэрэг ажиллаж,
+          эцэг нь <span class="tag t-join">join</span>-оор хүлээж нэгтгэнэ. БД1 алгоритмыг сайн тайлбарлаж байсан ч
+          <b>аль thread, хэзээ, юу хийж байгааг</b> харуулдаггүй байв.</p>
+      </section>
+      <section>
+        <h2>Шийдэл</h2>
+        <p>Task бүр fork / join цэг, worker, хугацаагаа бүртгэнэ:</p>
+        <div class="flow">
+          <div>T1 [0–7]</div><span class="arr">→</span>
+          <div><span class="tag t-fork">fork()</span> T5 [4–7]</div><span class="arr">→</span>
+          <div>compute() T2</div><span class="arr">→</span>
+          <div><span class="tag t-join">join()</span> T5</div><span class="arr">→</span>
+          <div>merge</div>
+        </div>
+        <ul style="margin-top:3mm">
+          <li><b>Recursion tree:</b> FORK/JOIN алхам, <code>fork()</code>/<code>compute()</code>/<code>join()</code> ирмэг, зангилаа бүрт <b>T3·W2</b> (task·worker).</li>
+          <li><b>Thread timeline:</b> worker бүр нэг мөр, хулгайлсан (steal) fork ба join сум, бүх үйл явдлын бүртгэл.</li>
+        </ul>
+      </section>
+      <section>
+        <h2>Шүүмжийн дагуух сайжруулалт</h2>
+        <ul>
+          <li><b>Багш:</b> fork/join ба thread-ийг бодит хугацаагаар харуулдаг болсон.</li>
+          <li><b>A1 (Major):</b> эрэмбэлэлт UI thread-ээс background thread руу шилжсэн.</li>
+          <li><b>A2, A4:</b> task/thread бүртгэл; <code>mvn test</code> + CI, хоосон массив, threshold 0 тест.</li>
+          <li><b>Өөрсдөө:</b> task бүр массивыг текст болгодог алдааг засаж <b>2.3–3.7×</b> хурдан болсон.</li>
+        </ul>
+      </section>
+      <section>
+        <h2>Дүгнэлт</h2>
+        <p>Хурдсалт worker-ийн тоогоор өсөх ч Amdahl-ийн хуулиар шугаман биш. Join дээр хүлээж буй thread сул зогсохгүй,
+          өөр task хулгайлна. <b>Хязгаарлалт:</b> мод ≤ 32 элемент; анимаци нь тайлбар, бодит дараалал нь timeline.</p>
+      </section>
+    </div>
+
+    <!-- Багана 2 -->
+    <div class="col">
+      <figure>
+        <img src="../screenshots/bd2/01_fork_step_merge.png" alt="FORK алхам ба 4 worker-ийн timeline">
+        <figcaption><b>Зураг 1. FORK алхам.</b> [0–3] нь [0–1]-г өөрөө <i>compute()</i>, [2–3]-г <i>fork()</i> хийв.
+          Доор: 4 leaf (T3, T4, T6, T7) <b>4 өөр worker</b> дээр зэрэг ажиллаж байна (8 тоо, threshold 2, саатал 20 ms).</figcaption>
+      </figure>
+      <figure>
+        <img src="../screenshots/bd2/05_quick_work_stealing.png" alt="Quick Sort work stealing">
+        <figcaption><b>Зураг 2. Work stealing.</b> W1-ийн fork хийсэн T3-г W2, W2-ийн fork хийсэн T6-г W3 хулгайлж
+          ажиллуулав. W1, W2 <i>join()</i> дээр хүлээж байна (саарал).</figcaption>
+      </figure>
+    </div>
+
+    <!-- Багана 3 -->
+    <div class="col">
+      <section>
+        <h2>Туршилт ба үр дүн</h2>
+        <p style="margin-bottom:2.5mm"><b>Өөрчилж:</b> worker-ийн тоо, threshold, алгоритм, өгөгдөл. <b>Ажиглах:</b> хугацаа, steal, timeline.</p>
+        <div class="kpis">
+          <div class="kpi"><div class="big">11&nbsp;946</div><small>тест амжилттай, 0 алдаа (BD1: 9&nbsp;111)</small></div>
+          <div class="kpi"><div class="big">4.35×</div><small>8 worker, Merge Sort, 10⁶ элемент</small></div>
+          <div class="kpi"><div class="big">98→28 ms</div><small>1 worker → Auto (8 тоо, 20 ms leaf)</small></div>
+        </div>
+      </section>
+      <section>
+        <h2>Хурдсалт T(1)/T(p)</h2>
+        <svg viewBox="0 0 360 170" width="100%" style="max-height:44mm" role="img" aria-label="Worker-ийн тоо ба хурдсалт">
+          <g font-size="11" fill="#5b6372" font-family="inherit">
+            <line x1="40" y1="140" x2="345" y2="140" stroke="#c9ced8"/>
+            <line x1="40" y1="10" x2="40" y2="140" stroke="#c9ced8"/>
+            <!-- y: 0..8 → 140..10 (16.25 px/unit); x: 1,2,4,8 → 60,155,250,335 -->
+            <g stroke="#eef0f4"><line x1="40" y1="107.5" x2="345" y2="107.5"/><line x1="40" y1="75" x2="345" y2="75"/><line x1="40" y1="42.5" x2="345" y2="42.5"/><line x1="40" y1="10" x2="345" y2="10"/></g>
+            <text x="32" y="144" text-anchor="end">0</text><text x="32" y="111" text-anchor="end">2</text>
+            <text x="32" y="79" text-anchor="end">4</text><text x="32" y="46" text-anchor="end">6</text><text x="32" y="14" text-anchor="end">8</text>
+            <text x="60" y="156" text-anchor="middle">1</text><text x="155" y="156" text-anchor="middle">2</text>
+            <text x="250" y="156" text-anchor="middle">4</text><text x="335" y="156" text-anchor="middle">8</text>
+            <text x="192" y="169" text-anchor="middle">worker thread</text>
+          </g>
+          <polyline points="60,123.75 155,107.5 250,75 335,10" fill="none" stroke="#b7bcc6" stroke-dasharray="4 4"/>
+          <polyline points="60,123.75 155,109.1 250,85.7 335,69.3" fill="none" stroke="#1f3a68" stroke-width="2.5"/>
+          <polyline points="60,123.75 155,108.3 250,89.1 335,78.7" fill="none" stroke="#8f74d6" stroke-width="2.5"/>
+          <g fill="#1f3a68"><circle cx="60" cy="123.75" r="3.5"/><circle cx="155" cy="109.1" r="3.5"/><circle cx="250" cy="85.7" r="3.5"/><circle cx="335" cy="69.3" r="3.5"/></g>
+          <g fill="#8f74d6"><circle cx="155" cy="108.3" r="3.5"/><circle cx="250" cy="89.1" r="3.5"/><circle cx="335" cy="78.7" r="3.5"/></g>
+          <g font-size="11" font-weight="700"><text x="268" y="62" fill="#1f3a68">Merge 4.35×</text><text x="268" y="96" fill="#8f74d6">Quick 3.77×</text>
+            <text x="262" y="24" fill="#9aa0aa" font-weight="400">шугаман</text></g>
+        </svg>
+        <table>
+          <tr><th>10⁶ элемент, 8 worker</th><th>BD1</th><th>BD2</th></tr>
+          <tr><td>Merge Sort, th 1000</td><td>604.7 ms</td><td><b>241.6 ms</b></td></tr>
+          <tr><td>Quick Sort, th 1000</td><td>695.9 ms</td><td><b>187.5 ms</b></td></tr>
+        </table>
+        <p class="small" style="margin-top:2mm">Apple M1 (4P+4E), Java 23.0.1, median of 5 (3 warm-up). Хамгийн сайн threshold ≈ 64.</p>
+      </section>
+      <section class="qr">
+        <div id="qrcode"></div>
+        <div>
+          <h2 style="margin-bottom:1mm">GitHub · final release v2.0.0</h2>
+          <p class="url">github.com/NamiIwbr/fork-join-sorting</p>
+          <p class="small" style="margin-top:1.5mm">Туршиж үзэх: README → Quick Start<br><code>mvn clean javafx:run</code> · <code>mvn clean test</code></p>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+<script>
+  // QR нь final release рүү заана. Tag өөр бол энд солино.
+  var RELEASE = "https://github.com/NamiIwbr/fork-join-sorting/releases/tag/v2.0.0";
+  try {
+    new QRCode(document.getElementById("qrcode"), { text: RELEASE, width: 256, height: 256, correctLevel: QRCode.CorrectLevel.M });
+  } catch (e) {
+    document.getElementById("qrcode").textContent = "QR: интернэт холболттой нээнэ үү";
+  }
+</script>
+</body>
+</html>
